@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local Media Browser</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Font Awesome icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css">
+    <!-- HLS.js for .m3u8 HLS support -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <!-- mux.js for MPEG-TS to fMP4 transmuxing via MSE -->
+    <script src="https://cdn.jsdelivr.net/npm/mux.js@6.3.0/dist/mux.js"></script>
+    <!-- PDF.js for mobile PDF rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1><i class="fa-solid fa-film" style="color:var(--accent);margin-right:6px"></i>Media Browser</h1>
+                <div class="header-actions">
+                    <!-- <button id="sidebarToggleBtn" class="btn-icon" title="Toggle sidebar"><i class="fa-solid fa-bars"></i></button> -->
+                    <button id="darkModeBtn" class="btn-icon" title="Toggle dark mode"><i class="fa-solid fa-moon"></i></button>
+                    <button id="openUrlBtn" class="btn-icon" title="Open URL"><i class="fa-solid fa-link"></i></button>
+                    <button id="setRootBtn" class="btn btn-primary"><i class="fa-solid fa-folder-open"></i> Select Folder</button>
+                </div>
+            </div>
+            <div class="breadcrumb-container">
+                <div id="breadcrumb" class="breadcrumb"></div>
+            </div>
+            <div id="rootInfo" class="root-info hidden">
+                <span class="root-info-icon">📁</span>
+                <input id="rootPath" class="root-path-input" type="text" readonly spellcheck="false" title="Click to edit folder path">
+            </div>
+        </header>
+
+        <!-- Main content -->
+        <main class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h3>Explorer</h3>
+                </div>
+                <div id="pinnedSection" class="pinned-section hidden">
+                    <div class="sidebar-section-label">Pinned</div>
+                    <div id="pinnedList" class="pinned-list"></div>
+                    <div class="sidebar-sep"></div>
+                </div>
+                <div id="folderTree" class="folder-tree"></div>
+            </aside>
+
+            <!-- File list area -->
+            <div class="file-area">
+                <!-- Top bar with controls -->
+                <div class="file-controls">
+                    <button id="sidebarToggleBtn" class="btn-icon" title="Toggle sidebar"><i class="fa-solid fa-bars"></i></button>
+                    <div class="search-box">
+                        <input 
+                            type="text" 
+                            id="searchInput" 
+                            placeholder="🔍 Search files..." 
+                            class="search-input"
+                        >
+                    </div>
+                    <div class="control-buttons">
+                        <button id="gridViewBtn" class="btn-icon active" title="Grid view"><i class="fa-solid fa-grip"></i></button>
+                        <button id="listViewBtn" class="btn-icon" title="List view"><i class="fa-solid fa-list"></i></button>
+                        <div class="sort-dropdown">
+                            <select id="sortBy" class="sort-select">
+                                <option value="name">Sort by Name</option>
+                                <option value="size">Sort by Size</option>
+                                <option value="date">Sort by Date</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- File grid/list -->
+                <div id="fileContainer" class="file-container grid-view"></div>
+
+                <!-- Empty state -->
+                <div id="emptyState" class="empty-state hidden">
+                    <div class="empty-icon"><i class="fa-solid fa-folder-open"></i></div>
+                    <p>No folder selected. Click <strong>Select Folder</strong> to get started.</p>
+                </div>
+
+                <!-- Loading state -->
+                <div id="loadingState" class="loading-state hidden">
+                    <div class="spinner"></div>
+                    <p>Loading files...</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- Video/Audio Player Modal -->
+        <div id="mediaPlayer" class="modal hidden">
+            <div class="modal-content player-modal-content">
+                <div class="player-header">
+                    <h3 id="playerTitle">Now Playing</h3>
+                    <button id="closePlayerBtn" class="btn-close">&#x2715;</button>
+                </div>
+                <div class="player-content">
+                    <video id="videoPlayer"
+                           controls
+                           preload="metadata"
+                           crossorigin="anonymous"
+                           playsinline>
+                        Your browser does not support the video tag.
+                    </video>
+                    <!-- Audio display -->
+                    <div class="audio-display">
+                        <div class="audio-art">
+                            <i class="fa-solid fa-music"></i>
+                        </div>
+                        <div class="audio-track-info">
+                            <div id="audioTrackName" class="audio-track-name"></div>
+                            <div id="audioTrackExt" class="audio-track-ext"></div>
+                        </div>
+                        <audio id="audioPlayer"
+                               controls
+                               preload="metadata"
+                               crossorigin="anonymous">
+                            Your browser does not support the audio tag.
+                        </audio>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Image preview modal -->
+        <div id="imageModal" class="modal hidden">
+            <div class="modal-content">
+                <button id="closeImageBtn" class="btn-close">✕</button>
+                <div class="image-container">
+                    <img id="imagePreview" src="" alt="Image preview">
+                </div>
+                <p id="imageName" class="image-name"></p>
+            </div>
+        </div>
+
+        <!-- Text file viewer modal -->
+        <div id="textModal" class="modal hidden">
+            <div class="modal-content large">
+                <div class="text-header">
+                    <h3 id="textFileName"></h3>
+                    <button id="closeTextBtn" class="btn-close">✕</button>
+                </div>
+                <div class="text-viewer">
+                    <button id="downloadTextBtn" class="btn btn-small">📥 Download</button>
+                    <pre id="textContent" class="text-content"></pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- CSV viewer modal -->
+        <div id="csvModal" class="modal hidden">
+            <div class="modal-content csv-modal-content">
+                <div class="csv-header">
+                    <i class="fa-solid fa-table-cells csv-header-icon"></i>
+                    <h3 id="csvFileName"></h3>
+                    <button id="closeCsvBtn" class="btn-close">&#x2715;</button>
+                </div>
+                <div id="csvTableContainer" class="csv-table-container"></div>
+            </div>
+        </div>
+
+        <!-- URL Input Modal -->
+        <div id="urlInputModal" class="modal hidden">
+            <div class="modal-content medium">
+                <div class="url-input-header">
+                    <i class="fa-solid fa-link" style="color:var(--accent)"></i>
+                    <h2>Open URL</h2>
+                    <button id="closeUrlInputBtn" class="btn-close">&#x2715;</button>
+                </div>
+                <div class="folder-input-group" style="margin-top:1rem">
+                    <input type="url" id="urlInput" class="folder-input"
+                        placeholder="https://example.com"
+                        autocomplete="off" spellcheck="false">
+                </div>
+                <div class="modal-actions">
+                    <button id="confirmUrlBtn" class="btn btn-primary"><i class="fa-solid fa-arrow-up-right-from-square"></i> Open</button>
+                    <button id="cancelUrlBtn" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- URL Iframe Viewer Modal -->
+        <div id="urlViewerModal" class="modal hidden">
+            <div class="modal-content url-viewer-content">
+                <div class="url-viewer-header">
+                    <i id="urlViewerIcon" class="fa-solid fa-globe" style="color:var(--accent);flex-shrink:0"></i>
+                    <input id="urlViewerAddress" class="url-viewer-address" type="url"
+                           placeholder="Enter URL, domain, or search query" autocomplete="off" spellcheck="false">
+                    <button id="urlViewerNewTab" class="btn btn-small btn-secondary" title="Open in new tab"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
+                    <button id="closeUrlViewerBtn" class="btn-close">&#x2715;</button>
+                </div>
+                <iframe id="urlViewerFrame" class="url-viewer-frame"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowfullscreen></iframe>
+            </div>
+        </div>
+
+        <!-- Folder selector modal -->
+        <div id="folderModal" class="modal hidden">
+            <div class="modal-content medium">
+                <h2>📁 Select Folder</h2>
+                <div class="folder-browse-row">
+                    <button id="browseFolderBtn" class="btn btn-primary btn-browse">📂 Browse for Folder</button>
+                    <span class="browse-hint">Opens the system folder picker</span>
+                </div>
+                <div class="folder-divider">or type path manually</div>
+                <div class="folder-input-group">
+                    <input 
+                        type="text" 
+                        id="folderPath" 
+                        placeholder="e.g., D:\Videos or /home/user/Videos"
+                        class="folder-input"
+                    >
+                </div>
+                <div id="recentFoldersSection" class="recent-folders-section hidden">
+                    <div class="recent-folders-label">Recent Folders</div>
+                    <div id="recentFoldersList" class="recent-folders-list"></div>
+                </div>
+                <div class="modal-actions">
+                    <button id="confirmRootBtn" class="btn btn-primary">✓ Open</button>
+                    <button id="cancelRootBtn" class="btn btn-secondary">✕ Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- PDF Viewer Modal -->
+        <div id="pdfModal" class="modal hidden">
+            <div class="modal-content pdf-modal-content">
+                <div class="pdf-modal-header">
+                    <h3 id="pdfFileName">PDF Viewer</h3>
+                    <div class="pdf-page-controls" id="pdfPageControls" style="display:none">
+                        <button id="pdfPrevBtn" class="btn btn-small btn-secondary">&#8249; Prev</button>
+                        <span id="pdfPageInfo">Page 1 of 1</span>
+                        <button id="pdfNextBtn" class="btn btn-small btn-primary">Next &#8250;</button>
+                    </div>
+                    <button id="closePdfBtn" class="btn-close">&#x2715;</button>
+                </div>
+                <div id="pdfContainer" class="pdf-container"></div>
+            </div>
+        </div>
+
+        <!-- Keyboard Shortcut Cheatsheet Modal -->
+        <div id="shortcutModal" class="modal hidden">
+            <div class="modal-content medium">
+                <div class="shortcut-modal-header">
+                    <i class="fa-solid fa-keyboard" style="color:var(--accent)"></i>
+                    <h2>Keyboard Shortcuts</h2>
+                    <button id="closeShortcutBtn" class="btn-close">&#x2715;</button>
+                </div>
+                <table class="shortcut-table">
+                    <tbody>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>?</kbd></td><td>Show this help</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>B</kbd></td><td>Toggle blur screen</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>C</kbd></td><td>New container</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>N</kbd></td><td>Toggle notes</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>S</kbd></td><td>Toggle sidebar</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>T</kbd></td><td>Toggle theme</td></tr>
+                        <tr><td class="kbd-col"><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Focus search bar</td></tr>
+                        <tr><td class="kbd-col"><kbd>Backspace</kbd></td><td>Go back (when not typing)</td></tr>
+                        <tr><td class="kbd-col"><kbd>Escape</kbd></td><td>Close modal / panel</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toolbox FAB -->
+    <div id="toolboxFab" class="toolbox-fab">
+        <div id="toolboxMenu" class="toolbox-menu hidden">
+            <button class="toolbox-menu-item" id="toolboxNotesBtn">
+                <i class="fa-solid fa-note-sticky"></i> Notes
+            </button>
+            <button class="toolbox-menu-item" id="toolboxBlurBtn">
+                <i class="fa-solid fa-eye-slash"></i> Blur Screen
+            </button>
+            <button class="toolbox-menu-item" id="toolboxContainerBtn">
+                <i class="fa-solid fa-window-restore"></i> Container
+            </button>
+        </div>
+        <button id="toolboxBtn" class="toolbox-btn" title="Toolbox">
+            <i class="fa-solid fa-toolbox"></i>
+        </button>
+    </div>
+
+    <!-- Notes Panel -->
+    <div id="notesPanel" class="notes-panel hidden">
+        <div class="notes-header">
+            <i class="fa-solid fa-note-sticky" style="color:var(--accent)"></i>
+            <span>Notes</span>
+            <button id="clearNotesBtn" class="btn-icon notes-clear" title="Clear notes"><i class="fa-solid fa-trash"></i></button>
+            <button id="closeNotesBtn" class="btn-close">&#x2715;</button>
+        </div>
+        <textarea id="notesTextarea" class="notes-textarea" placeholder="Write your notes here… (auto-saved)"></textarea>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
