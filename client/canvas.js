@@ -108,14 +108,16 @@ class CanvasApp {
   /* ── Palette ───────────────────────────────────────────── */
 
   buildPalette() {
-    const el = document.getElementById('palette');
-    this.PALETTE.forEach(c => {
+    const strip = document.getElementById('palette');
+    const menu  = document.getElementById('paletteMenu');
+    this.PALETTE.forEach((c, i) => {
       const btn = document.createElement('button');
       btn.className = 'cv-swatch';
       btn.style.background = c;
       btn.title = c;
       btn.addEventListener('click', () => this.setColor(c));
-      el.appendChild(btn);
+      if (i < 4) strip.appendChild(btn);
+      else       menu.appendChild(btn);
     });
 
     // Set initial preview color
@@ -227,6 +229,52 @@ class CanvasApp {
 
     // Close
     document.getElementById('closeBtn').addEventListener('click', () => this.close());
+
+    // Brush flyout
+    this._bindFlyout('brushFlyout');
+
+    // Shape flyout
+    this._bindFlyout('shapeFlyout');
+
+    // Palette flyout
+    (() => {
+      const wrap = document.getElementById('paletteFlyout');
+      const popMenu = document.getElementById('paletteMenu');
+      if (!wrap || !popMenu) return;
+      let t = null;
+      const show = () => {
+        clearTimeout(t);
+        const r = wrap.getBoundingClientRect();
+        popMenu.style.top  = (r.bottom + 4) + 'px';
+        popMenu.style.left = r.left + 'px';
+        popMenu.classList.add('open');
+      };
+      const hide = () => { t = setTimeout(() => popMenu.classList.remove('open'), 120); };
+      wrap.addEventListener('mouseenter', show);
+      wrap.addEventListener('mouseleave', hide);
+      popMenu.addEventListener('mouseenter', () => clearTimeout(t));
+      popMenu.addEventListener('mouseleave', hide);
+    })();
+
+    // Props flyout (Size/Opacity/Fill hover → Rounding/Sides)
+    (() => {
+      const wrap = document.getElementById('propsFlyout');
+      const menu = document.getElementById('propsMenu');
+      if (!wrap || !menu) return;
+      let t = null;
+      const show = () => {
+        clearTimeout(t);
+        const r = wrap.getBoundingClientRect();
+        menu.style.top  = (r.bottom + 4) + 'px';
+        menu.style.left = r.left + 'px';
+        menu.classList.add('open');
+      };
+      const hide = () => { t = setTimeout(() => menu.classList.remove('open'), 120); };
+      wrap.addEventListener('mouseenter', show);
+      wrap.addEventListener('mouseleave', hide);
+      menu.addEventListener('mouseenter', () => clearTimeout(t));
+      menu.addEventListener('mouseleave', hide);
+    })();
 
     // Keyboard shortcuts
     document.addEventListener('keydown', e => this.onKey(e));
@@ -979,10 +1027,51 @@ class CanvasApp {
   selectTool(name) {
     this._setSelection(null);
     this.tool = name;
+    const isBrush = ['pencil','brush','marker','eraser'].includes(name);
+    if (isBrush) this._updateBrushTrigger(name);
+    const isShape = ['line','rect','circle','polygon','arrow'].includes(name);
+    if (isShape) this._updateFlyoutTrigger('shapeFlyout', name);
     document.querySelectorAll('.cv-tool[data-tool]').forEach(b => {
       b.classList.toggle('active', b.dataset.tool === name);
     });
     this.updateCursor();
+  }
+
+  _updateBrushTrigger(name) {
+    this._updateFlyoutTrigger('brushFlyout', name);
+  }
+
+  _updateFlyoutTrigger(flyoutId, name) {
+    const flyout = document.getElementById(flyoutId);
+    if (!flyout) return;
+    const trigger = flyout.querySelector('[id$="Trigger"]');
+    const source  = flyout.querySelector(`.cv-flyout-menu [data-tool="${name}"]`);
+    if (!trigger || !source) return;
+    trigger.dataset.tool = name;
+    trigger.title = source.title;
+    trigger.querySelector('i').className = source.querySelector('i').className;
+  }
+
+  _bindFlyout(flyoutId) {
+    const flyout = document.getElementById(flyoutId);
+    const menu   = flyout && flyout.querySelector('.cv-flyout-menu');
+    if (!flyout || !menu) return;
+    let hideTimer = null;
+    const show = () => {
+      clearTimeout(hideTimer);
+      const r = flyout.getBoundingClientRect();
+      menu.style.top  = (r.bottom + 4) + 'px';
+      menu.style.left = '0px';
+      menu.classList.add('open');
+      requestAnimationFrame(() => {
+        menu.style.left = (r.left + r.width / 2 - menu.offsetWidth / 2) + 'px';
+      });
+    };
+    const hide = () => { hideTimer = setTimeout(() => menu.classList.remove('open'), 120); };
+    flyout.addEventListener('mouseenter', show);
+    flyout.addEventListener('mouseleave', hide);
+    menu.addEventListener('mouseenter', () => clearTimeout(hideTimer));
+    menu.addEventListener('mouseleave', hide);
   }
 
   /* ── Object model helpers ─────────────────────────────── */

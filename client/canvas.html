@@ -27,23 +27,33 @@
 
       <div class="cv-div"></div>
 
-      <!-- Draw tools -->
-      <div class="cv-group">
-        <button class="cv-tool active" data-tool="pencil"  title="Pencil  [P]"><i class="fa-solid fa-pencil"></i></button>
-        <button class="cv-tool"        data-tool="brush"   title="Brush   [B]"><i class="fa-solid fa-paintbrush"></i></button>
-        <button class="cv-tool"        data-tool="marker"  title="Marker  [M]"><i class="fa-solid fa-marker"></i></button>
-        <button class="cv-tool"        data-tool="eraser"  title="Eraser  [E]"><i class="fa-solid fa-eraser"></i></button>
+      <!-- Draw tools flyout -->
+      <div class="cv-flyout" id="brushFlyout">
+        <button class="cv-tool active" id="brushTrigger" data-tool="pencil" title="Pencil [P]">
+          <i class="fa-solid fa-pencil"></i>
+        </button>
+        <div class="cv-flyout-menu">
+          <button class="cv-tool active" data-tool="pencil"  title="Pencil  [P]"><i class="fa-solid fa-pencil"></i></button>
+          <button class="cv-tool"        data-tool="brush"   title="Brush   [B]"><i class="fa-solid fa-paintbrush"></i></button>
+          <button class="cv-tool"        data-tool="marker"  title="Marker  [M]"><i class="fa-solid fa-marker"></i></button>
+          <button class="cv-tool"        data-tool="eraser"  title="Eraser  [E]"><i class="fa-solid fa-eraser"></i></button>
+        </div>
       </div>
 
       <div class="cv-div"></div>
 
-      <!-- Shape tools -->
-      <div class="cv-group">
-        <button class="cv-tool" data-tool="line"     title="Line       [L]"><i class="fa-solid fa-minus cv-diag"></i></button>
-        <button class="cv-tool" data-tool="rect"     title="Rectangle  [R]"><i class="fa-regular fa-square"></i></button>
-        <button class="cv-tool" data-tool="circle"   title="Ellipse    [C]"><i class="fa-regular fa-circle"></i></button>
-        <button class="cv-tool" data-tool="polygon"  title="Polygon    [G]"><i class="fa-solid fa-draw-polygon"></i></button>
-        <button class="cv-tool" data-tool="arrow"    title="Arrow      [A]"><i class="fa-solid fa-arrow-right"></i></button>
+      <!-- Shape tools flyout -->
+      <div class="cv-flyout" id="shapeFlyout">
+        <button class="cv-tool" id="shapeTrigger" data-tool="rect" title="Rectangle [R]">
+          <i class="fa-regular fa-square"></i>
+        </button>
+        <div class="cv-flyout-menu">
+          <button class="cv-tool" data-tool="line"    title="Line       [L]"><i class="fa-solid fa-minus cv-diag"></i></button>
+          <button class="cv-tool" data-tool="rect"    title="Rectangle  [R]"><i class="fa-regular fa-square"></i></button>
+          <button class="cv-tool" data-tool="circle"  title="Ellipse    [C]"><i class="fa-regular fa-circle"></i></button>
+          <button class="cv-tool" data-tool="polygon" title="Polygon    [G]"><i class="fa-solid fa-draw-polygon"></i></button>
+          <button class="cv-tool" data-tool="arrow"   title="Arrow      [A]"><i class="fa-solid fa-arrow-right"></i></button>
+        </div>
       </div>
 
       <div class="cv-div"></div>
@@ -61,39 +71,42 @@
           <div class="cv-color-preview" id="colorPreview"></div>
           <input type="color" id="colorPicker" value="#e74c3c">
         </label>
-        <div class="cv-palette" id="palette"></div>
+        <div class="cv-palette-flyout" id="paletteFlyout">
+          <div class="cv-palette" id="palette"></div>
+          <div class="cv-palette-menu" id="paletteMenu"></div>
+        </div>
       </div>
 
       <div class="cv-div"></div>
 
-      <!-- Size -->
-      <div class="cv-prop">
-        <span class="cv-lbl">Size&nbsp;<b id="sizeVal">5</b></span>
-        <input type="range" class="cv-range" id="sizeRange" min="1" max="80" value="5">
-      </div>
-
-      <!-- Opacity -->
-      <div class="cv-prop">
-        <span class="cv-lbl">Opacity&nbsp;<b id="opacityVal">100%</b></span>
-        <input type="range" class="cv-range" id="opacityRange" min="10" max="100" value="100">
-      </div>
-
-      <!-- Fill shapes toggle -->
-      <label class="cv-fill-lbl" title="Fill shapes">
-        <input type="checkbox" id="fillToggle">
-        <span>Fill</span>
-      </label>
-
-      <!-- Corner rounding -->
-      <div class="cv-prop" id="cornerRoundingProp">
-        <span class="cv-lbl">Rounding&nbsp;<b id="cornerRoundingVal">0</b></span>
-        <input type="range" class="cv-range" id="cornerRoundingRange" min="0" max="100" value="0">
-      </div>
-
-      <!-- Sides (polygon) -->
-      <div class="cv-prop" id="sidesProp">
-        <span class="cv-lbl">Sides&nbsp;<b id="sidesVal">3</b></span>
-        <input type="range" class="cv-range" id="sidesRange" min="3" max="20" value="3">
+      <!-- Size / Opacity / Fill — hover reveals Rounding & Sides -->
+      <div class="cv-props-flyout" id="propsFlyout">
+        <!-- Always visible -->
+        <div class="cv-props-strip">
+          <div class="cv-prop">
+            <span class="cv-lbl">Size&nbsp;<b id="sizeVal">5</b></span>
+            <input type="range" class="cv-range" id="sizeRange" min="1" max="80" value="5">
+          </div>
+          <div class="cv-prop">
+            <span class="cv-lbl">Opacity&nbsp;<b id="opacityVal">100%</b></span>
+            <input type="range" class="cv-range" id="opacityRange" min="10" max="100" value="100">
+          </div>
+          <label class="cv-fill-lbl" title="Fill shapes">
+            <input type="checkbox" id="fillToggle">
+            <span>Fill</span>
+          </label>
+        </div>
+        <!-- Hover menu -->
+        <div class="cv-props-menu" id="propsMenu">
+          <div class="cv-prop">
+            <span class="cv-lbl">Rounding&nbsp;<b id="cornerRoundingVal">0</b></span>
+            <input type="range" class="cv-range" id="cornerRoundingRange" min="0" max="100" value="0">
+          </div>
+          <div class="cv-prop">
+            <span class="cv-lbl">Sides&nbsp;<b id="sidesVal">3</b></span>
+            <input type="range" class="cv-range" id="sidesRange" min="3" max="20" value="3">
+          </div>
+        </div>
       </div>
 
       <div class="cv-div"></div>
