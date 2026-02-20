@@ -27,6 +27,7 @@ class CanvasApp {
     this.lastX = 0; this.lastY = 0;
     this.startX = 0; this.startY = 0;
     this.textPending = null;
+    this.cursorPos  = null; // tracks mouse position for brush-size cursor
 
     // Current in-progress strokes/shapes
     this.currentStroke = null;
@@ -47,11 +48,24 @@ class CanvasApp {
     this.resizeObjId     = -1;
     this.resizeBase      = null;
 
+    // Shift-constrain drawing / resize
+    this.shiftDown = false;
+
     // Rotation handle state
     this.isRotating   = false;
     this.rotateObjId  = -1;
     this.rotateBase   = null;
     this.rotateCenter = null; // {x,y} center of object during rotate
+
+    // Group (multi-select) resize / rotate state
+    this.isGroupResizing   = false;
+    this.groupResizeHIdx   = -1;
+    this.groupResizeGb     = null;  // {x,y,w,h} raw bounding box at drag start
+    this.groupResizeBases  = null;  // Map<id, clonedObj>
+    this.isGroupRotating   = false;
+    this.groupRotateBases  = null;  // Map<id, {obj, cx, cy}>
+    this.groupRotateCenter = null;  // {x,y}
+    this.groupRotateBase0  = 0;     // start angle
 
     // Marquee (rubber-band) selection state
     this.isMarquee    = false;
@@ -165,6 +179,10 @@ class CanvasApp {
       this.size = parseInt(sizeR.value);
       sizeV.textContent = this.size;
       this._applyPropToSelected('size', this.size);
+      if (this.isFreehand() && this.cursorPos) {
+        this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
+        this._drawBrushCursor();
+      }
     });
     sizeR.addEventListener('change', () => {
       if (this.selectedIds.size > 0) this.saveSnap();
@@ -277,13 +295,27 @@ class CanvasApp {
     })();
 
     // Keyboard shortcuts
-    document.addEventListener('keydown', e => this.onKey(e));
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Shift') {
+        this.shiftDown = true;
+        // Live-refresh shape preview when Shift pressed mid-draw
+        if (this.isDrawing && this.currentShape) this._updateShapePreview(this.lastX, this.lastY);
+      }
+      this.onKey(e);
+    });
+    document.addEventListener('keyup', e => {
+      if (e.key === 'Shift') {
+        this.shiftDown = false;
+        if (this.isDrawing && this.currentShape) this._updateShapePreview(this.lastX, this.lastY);
+      }
+    });
   }
 
   updateCursor() {
     if (this.tool === 'select') { this.preview.style.cursor = 'default'; return; }
-    const map = { eraser: 'cell', text: 'text' };
-    this.preview.style.cursor = map[this.tool] || 'crosshair';
+    const map = { text: 'text' };
+    // Hide native cursor for freehand tools — we draw our own brush-size circle
+    this.preview.style.cursor = this.isFreehand() ? 'none' : (map[this.tool] || 'crosshair');
   }
 
   /* ── Canvas event bindings ─────────────────────────────── */
@@ -293,7 +325,13 @@ class CanvasApp {
     p.addEventListener('mousedown',  e => this.onDown(e));
     p.addEventListener('mousemove',  e => this.onMove(e));
     p.addEventListener('mouseup',    e => this.onUp(e));
-    p.addEventListener('mouseleave', e => { if (this.isDrawing || this.isMarquee) this.onUp(e); });
+    p.addEventListener('mouseleave', e => {
+      if (this.isFreehand()) {
+        this.cursorPos = null;
+        this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
+      }
+      if (this.isDrawing || this.isMarquee) this.onUp(e);
+    });
 
     // Touch support
     p.addEventListener('touchstart',  e => { e.preventDefault(); this.onDown(this.t2m(e)); }, { passive: false });
@@ -353,6 +391,7 @@ class CanvasApp {
   }
 
   onMove(e) {
+    this.shiftDown = e.shiftKey;
     const { x, y } = this.pos(e);
 
     if (this.tool === 'select') {
@@ -365,18 +404,27 @@ class CanvasApp {
       return;
     }
 
-    if (!this.isDrawing) return;
-
     if (this.isFreehand()) {
+      this.cursorPos = { x, y };
+      if (!this.isDrawing) {
+        // Not drawing — just show the brush cursor on the preview canvas
+        this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
+        this._drawBrushCursor();
+        return;
+      }
       this._updateFreehandPreview(x, y);
-    } else {
-      this._updateShapePreview(x, y);
+      this._drawBrushCursor(); // overlay cursor on top of stroke preview
+      this.lastX = x; this.lastY = y;
+      return;
     }
 
+    if (!this.isDrawing) return;
+    this._updateShapePreview(x, y);
     this.lastX = x; this.lastY = y;
   }
 
   onUp(e) {
+    this.shiftDown = e.shiftKey;
     const { x, y } = this.pos(e);
 
     if (this.tool === 'select') { this._handleSelectUp(x, y); return; }
@@ -398,6 +446,47 @@ class CanvasApp {
   /* ── Select tool ───────────────────────────────────────── */
 
   _handleSelectDown(x, y, shiftKey) {
+    // 0. Multi-selection group resize / rotate
+    if (this.selectedIds.size > 1) {
+      const gb = this._multiSelectHandleBounds();
+      if (gb) {
+        const rh = this._getRotationHandlePos(gb);
+        if (Math.hypot(x - rh.x, y - rh.y) <= this.ROT_HANDLE_R + 4) {
+          this.isGroupRotating   = true;
+          this.isDrawing         = true;
+          this.groupRotateCenter = { x: gb.cx, y: gb.cy };
+          this.groupRotateBase0  = Math.atan2(y - gb.cy, x - gb.cx);
+          this.groupRotateBases  = new Map();
+          for (const id of this.selectedIds) {
+            const obj = this._getObjectById(id);
+            if (!obj) continue;
+            const ab = this._getAxisAlignedBoundsFromObj(obj);
+            const ocx = ab ? ab.x + ab.w / 2 : 0;
+            const ocy = ab ? ab.y + ab.h / 2 : 0;
+            this.groupRotateBases.set(id, { obj: this._cloneObject(obj), cx: ocx, cy: ocy });
+          }
+          return;
+        }
+        const handles = this._getHandlePositions(gb);
+        const R = this.HANDLE_R + 3;
+        for (let i = 0; i < handles.length; i++) {
+          if (Math.hypot(x - handles[i].x, y - handles[i].y) <= R) {
+            this.isGroupResizing  = true;
+            this.isDrawing        = true;
+            this.groupResizeHIdx  = i;
+            this.dragStart        = { x, y };
+            this.groupResizeGb    = { x: gb.cx - gb.w/2, y: gb.cy - gb.h/2, w: gb.w, h: gb.h };
+            this.groupResizeBases = new Map();
+            for (const id of this.selectedIds) {
+              const obj = this._getObjectById(id);
+              if (obj) this.groupResizeBases.set(id, this._cloneObject(obj));
+            }
+            return;
+          }
+        }
+      }
+    }
+
     // 1. Check rotation handle (only when single object selected)
     if (this.selectedIds.size === 1) {
       const [id] = this.selectedIds;
@@ -459,6 +548,16 @@ class CanvasApp {
   }
 
   _handleSelectMove(x, y) {
+    if (this.isGroupRotating) {
+      this._applyGroupRotate(x, y);
+      this.renderAll(); this._drawSelectionOverlay();
+      return;
+    }
+    if (this.isGroupResizing) {
+      this._applyGroupResize(x, y);
+      this.renderAll(); this._drawSelectionOverlay();
+      return;
+    }
     if (this.isRotating) {
       const obj = this._getObjectById(this.rotateObjId);
       if (!obj) return;
@@ -494,6 +593,18 @@ class CanvasApp {
   }
 
   _handleSelectUp(x, y) {
+    if (this.isGroupRotating) {
+      this.isGroupRotating = false; this.isDrawing = false;
+      this.groupRotateBases = null;
+      this.saveSnap(); this._drawSelectionOverlay();
+      return;
+    }
+    if (this.isGroupResizing) {
+      this.isGroupResizing = false; this.isDrawing = false;
+      this.groupResizeBases = null;
+      this.saveSnap(); this._drawSelectionOverlay();
+      return;
+    }
     if (this.isRotating) {
       this.isRotating = false;
       this.isDrawing  = false;
@@ -580,11 +691,41 @@ class CanvasApp {
     this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
     if (this.selectedIds.size === 0) {
       this._updateGroupUI();
+      this._drawBrushCursor();
       return;
     }
     this._drawAllSelectionHandles();
     this._updateGroupUI();
     this._syncControlsToSelection();
+    this._drawBrushCursor();
+  }
+
+  _drawBrushCursor() {
+    if (!this.isFreehand() || !this.cursorPos) return;
+    const { x, y } = this.cursorPos;
+    const isEraser = this.tool === 'eraser';
+    // eraser uses size*2 line width, others use size — mirror _drawStroke logic
+    const r = Math.max(1, isEraser ? this.size : this.size / 2);
+    const ctx = this.pctx;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    if (isEraser) {
+      ctx.strokeStyle = 'rgba(180,180,180,0.9)';
+      ctx.setLineDash([4, 3]);
+    } else {
+      ctx.strokeStyle = this.rgba(this.color, Math.min(1, this.opacity + 0.3));
+      ctx.setLineDash([]);
+    }
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // center dot
+    ctx.beginPath();
+    ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = isEraser ? 'rgba(180,180,180,0.9)' : this.rgba(this.color, 1);
+    ctx.fill();
+    ctx.restore();
   }
 
   _drawAllSelectionHandles() {
@@ -612,6 +753,9 @@ class CanvasApp {
     if (this.selectedIds.size > 1) {
       const pad = 6;
       this._drawDashedRect(gx1 - pad, gy1 - pad, gx2 - gx1 + pad * 2, gy2 - gy1 + pad * 2, '#e74c3c');
+      const gb = { cx: (gx1+gx2)/2, cy: (gy1+gy2)/2, w: gx2-gx1+pad*2, h: gy2-gy1+pad*2, angle: 0 };
+      this._drawResizeHandles(gb);
+      this._drawRotationHandle(gb);
     }
   }
 
@@ -746,6 +890,22 @@ class CanvasApp {
     const hi = this.resizeHandleIdx;
     // 0=TL 1=TC 2=TR / 3=ML 4=MR / 5=BL 6=BC 7=BR
 
+    // Shift-lock: constrain proportions for corner handles
+    const _shiftConstrain = (bx, by, bw, bh, nxIn, nyIn, nwIn, nhIn) => {
+      if (!this.shiftDown || ![0,2,5,7].includes(hi)) return [nxIn, nyIn, nwIn, nhIn];
+      const ar = bh > 0 ? bw / bh : 1;
+      const scaleX = bw > 0 ? nwIn / bw : 1;
+      const scaleY = bh > 0 ? nhIn / bh : 1;
+      const scale = Math.abs(scaleX) >= Math.abs(scaleY) ? scaleX : scaleY;
+      let nw2 = bw * scale, nh2 = bh * scale;
+      if (nw2 < 4) nw2 = 4;
+      if (nh2 < 4) nh2 = 4;
+      let nx2 = nxIn, ny2 = nyIn;
+      if ([0,3,5].includes(hi)) nx2 = bx + bw - nw2;  // left-side handles: anchor right edge
+      if ([0,1,2].includes(hi)) ny2 = by + bh - nh2;  // top handles: anchor bottom edge
+      return [nx2, ny2, nw2, nh2];
+    };
+
     if (type === 'stroke') {
       const bx = ab.x, by = ab.y, bw = ab.w, bh = ab.h;
       let nx = bx, ny = by, nw = bw, nh = bh;
@@ -754,6 +914,7 @@ class CanvasApp {
       if ([0,1,2].includes(hi)) { ny = by + dy; nh = bh - dy; }
       if ([5,6,7].includes(hi)) { nh = bh + dy; }
       if (nw < 4) nw = 4; if (nh < 4) nh = 4;
+      [nx, ny, nw, nh] = _shiftConstrain(bx, by, bw, bh, nx, ny, nw, nh);
       const scaleX = bw > 0 ? nw / bw : 1;
       const scaleY = bh > 0 ? nh / bh : 1;
       obj.points = base.points.map(p => ({ x: nx + (p.x - bx) * scaleX, y: ny + (p.y - by) * scaleY }));
@@ -778,6 +939,7 @@ class CanvasApp {
       if ([0,1,2].includes(hi)) { ny = by + dy; nh = bh - dy; }
       if ([5,6,7].includes(hi)) { nh = bh + dy; }
       if (nw < 4) nw = 4; if (nh < 4) nh = 4;
+      [nx, ny, nw, nh] = _shiftConstrain(bx, by, bw, bh, nx, ny, nw, nh);
       const oldB = { x: bx, y: by, w: bw, h: bh };
       const newB = { x: nx, y: ny, w: nw, h: nh };
       obj.children = base.children.map(child => {
@@ -789,6 +951,8 @@ class CanvasApp {
     }
 
     // Shape: manipulate x1,y1,x2,y2
+    const sbx=Math.min(base.x1,base.x2), sby=Math.min(base.y1,base.y2);
+    const sbw=Math.abs(base.x2-base.x1), sbh=Math.abs(base.y2-base.y1);
     let lx1 = Math.min(base.x1, base.x2), ly1 = Math.min(base.y1, base.y2);
     let lx2 = Math.max(base.x1, base.x2), ly2 = Math.max(base.y1, base.y2);
     if ([0,3,5].includes(hi)) lx1 += dx;
@@ -797,14 +961,106 @@ class CanvasApp {
     if ([5,6,7].includes(hi)) ly2 += dy;
     if (lx2 - lx1 < 4) { if ([0,3,5].includes(hi)) lx1 = lx2 - 4; else lx2 = lx1 + 4; }
     if (ly2 - ly1 < 4) { if ([0,1,2].includes(hi)) ly1 = ly2 - 4; else ly2 = ly1 + 4; }
+    {
+      let [nx, ny, nw, nh] = _shiftConstrain(sbx, sby, sbw, sbh, lx1, ly1, lx2-lx1, ly2-ly1);
+      lx1=nx; ly1=ny; lx2=nx+nw; ly2=ny+nh;
+    }
     const origFlipX = base.x1 > base.x2, origFlipY = base.y1 > base.y2;
     obj.x1 = origFlipX ? lx2 : lx1; obj.y1 = origFlipY ? ly2 : ly1;
     obj.x2 = origFlipX ? lx1 : lx2; obj.y2 = origFlipY ? ly1 : ly2;
   }
 
-  /* ── Cursor for select tool ────────────────────────────── */
+  /** Computes the handle-overlay bounds for the multi-select group box (same rect as the red dashed border) */
+  _multiSelectHandleBounds() {
+    if (this.selectedIds.size < 2) return null;
+    let gx1=Infinity, gy1=Infinity, gx2=-Infinity, gy2=-Infinity;
+    for (const id of this.selectedIds) {
+      const obj = this._getObjectById(id);
+      if (!obj) continue;
+      const ab = this._getAxisAlignedBounds(obj);
+      if (!ab) continue;
+      gx1 = Math.min(gx1, ab.x);       gy1 = Math.min(gy1, ab.y);
+      gx2 = Math.max(gx2, ab.x+ab.w);  gy2 = Math.max(gy2, ab.y+ab.h);
+    }
+    if (!isFinite(gx1)) return null;
+    const pad = 6;
+    return { cx: (gx1+gx2)/2, cy: (gy1+gy2)/2, w: gx2-gx1+pad*2, h: gy2-gy1+pad*2, angle: 0 };
+  }
+
+  /** Proportionally scale all selected objects to match the new dragged group bounding box */
+  _applyGroupResize(x, y) {
+    const gb  = this.groupResizeGb;
+    const hi  = this.groupResizeHIdx;
+    const dx  = x - this.dragStart.x;
+    const dy  = y - this.dragStart.y;
+    let nx=gb.x, ny=gb.y, nw=gb.w, nh=gb.h;
+    if ([0,3,5].includes(hi)) { nx=gb.x+dx; nw=gb.w-dx; }
+    if ([2,4,7].includes(hi)) { nw=gb.w+dx; }
+    if ([0,1,2].includes(hi)) { ny=gb.y+dy; nh=gb.h-dy; }
+    if ([5,6,7].includes(hi)) { nh=gb.h+dy; }
+    if (nw < 10) { if ([0,3,5].includes(hi)) nx=gb.x+gb.w-10; nw=10; }
+    if (nh < 10) { if ([0,1,2].includes(hi)) ny=gb.y+gb.h-10; nh=10; }
+    // Shift: lock aspect ratio on corner handles
+    if (this.shiftDown && [0,2,5,7].includes(hi)) {
+      const ar = gb.h > 0 ? gb.w / gb.h : 1;
+      const scaleX = gb.w > 0 ? nw / gb.w : 1;
+      const scaleY = gb.h > 0 ? nh / gb.h : 1;
+      const scale = Math.abs(scaleX) >= Math.abs(scaleY) ? scaleX : scaleY;
+      nw = gb.w * scale; nh = gb.h * scale;
+      if ([0,3,5].includes(hi)) nx = gb.x + gb.w - nw;
+      if ([0,1,2].includes(hi)) ny = gb.y + gb.h - nh;
+    }
+    const newGb = { x: nx, y: ny, w: nw, h: nh };
+    for (const [id, base] of this.groupResizeBases) {
+      const obj = this._getObjectById(id);
+      if (!obj) continue;
+      const c = this._cloneObject(base);
+      this._scaleObjCoords(c, gb, newGb);
+      this._copyObjCoords(obj, c);
+    }
+  }
+
+  /** Rotate all selected objects around the group center */
+  _applyGroupRotate(x, y) {
+    const { cx, cy } = this.groupRotateCenter;
+    const curAng = Math.atan2(y - cy, x - cx);
+    const delta  = curAng - this.groupRotateBase0;
+    for (const [id, info] of this.groupRotateBases) {
+      const obj = this._getObjectById(id);
+      if (!obj) continue;
+      // Rotate the saved object-center around group center to get new position
+      const np = this._rotatePoint(cx, cy, info.cx, info.cy, delta);
+      const ddx = np.x - info.cx;
+      const ddy = np.y - info.cy;
+      this._moveFromBase(obj, info.obj, ddx, ddy);
+      obj.rotation = (info.obj.rotation || 0) + delta;
+    }
+  }
+
+  /** Copy positional coords from src to dst without touching style properties */
+  _copyObjCoords(dst, src) {
+    const type = dst.type || dst.tool;
+    if (type === 'stroke')      { dst.points = src.points; }
+    else if (type === 'text')   { dst.x = src.x; dst.y = src.y; dst.fontSize = src.fontSize; }
+    else if (type === 'group')  { dst.children = src.children; }
+    else                        { dst.x1=src.x1; dst.y1=src.y1; dst.x2=src.x2; dst.y2=src.y2; }
+  }
 
   _updateSelectCursor(x, y) {
+    // Group handles first
+    if (this.selectedIds.size > 1) {
+      const gb = this._multiSelectHandleBounds();
+      if (gb) {
+        const rh = this._getRotationHandlePos(gb);
+        if (Math.hypot(x - rh.x, y - rh.y) <= this.ROT_HANDLE_R + 4) { this.preview.style.cursor = 'grab'; return; }
+        const handles = this._getHandlePositions(gb);
+        const R = this.HANDLE_R + 3;
+        const cursors = ['nw-resize','n-resize','ne-resize','w-resize','e-resize','sw-resize','s-resize','se-resize'];
+        for (let i = 0; i < handles.length; i++) {
+          if (Math.hypot(x - handles[i].x, y - handles[i].y) <= R) { this.preview.style.cursor = cursors[i]; return; }
+        }
+      }
+    }
     if (this.selectedIds.size === 1) {
       const [id] = this.selectedIds;
       const obj  = this._getObjectById(id);
@@ -851,8 +1107,16 @@ class CanvasApp {
   /* ── Shape preview & commit ────────────────────────────── */
   _updateShapePreview(x, y) {
     if (!this.currentShape) return;
-    this.currentShape.x2 = x;
-    this.currentShape.y2 = y;
+    let ex = x, ey = y;
+    if (this.shiftDown) {
+      const dx = ex - this.currentShape.x1;
+      const dy = ey - this.currentShape.y1;
+      const side = Math.min(Math.abs(dx), Math.abs(dy));
+      ex = this.currentShape.x1 + Math.sign(dx || 1) * side;
+      ey = this.currentShape.y1 + Math.sign(dy || 1) * side;
+    }
+    this.currentShape.x2 = ex;
+    this.currentShape.y2 = ey;
     this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
     this._drawObject(this.pctx, this.currentShape);
   }
@@ -1104,8 +1368,16 @@ class CanvasApp {
 
   _commitShape(x, y) {
     if (!this.currentShape) return;
-    this.currentShape.x2 = x;
-    this.currentShape.y2 = y;
+    let ex = x, ey = y;
+    if (this.shiftDown) {
+      const dx = ex - this.currentShape.x1;
+      const dy = ey - this.currentShape.y1;
+      const side = Math.min(Math.abs(dx), Math.abs(dy));
+      ex = this.currentShape.x1 + Math.sign(dx || 1) * side;
+      ey = this.currentShape.y1 + Math.sign(dy || 1) * side;
+    }
+    this.currentShape.x2 = ex;
+    this.currentShape.y2 = ey;
     const shape = {
       id: this._nextId++,
       type: this.currentShape.tool,

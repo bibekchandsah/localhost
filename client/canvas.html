@@ -65,6 +65,19 @@
 
       <div class="cv-div"></div>
 
+      <!-- Group / Ungroup -->
+      <div class="cv-group">
+        <button class="cv-tool" id="groupBtn"   title="Group selected  Ctrl+G"         disabled><i class="fa-solid fa-object-group"></i></button>
+        <button class="cv-tool" id="ungroupBtn" title="Ungroup  Ctrl+Shift+G"          disabled><i class="fa-solid fa-object-ungroup"></i></button>
+        
+        <label class="cv-fill-lbl" title="Fill shapes">
+          <input type="checkbox" id="fillToggle">
+          <span>Fill</span>
+        </label>
+      </div>
+
+      <div class="cv-div"></div>
+
       <!-- Color picker + palette -->
       <div class="cv-color-wrap">
         <label class="cv-color-btn" title="Pick color (click)">
@@ -91,10 +104,10 @@
             <span class="cv-lbl">Opacity&nbsp;<b id="opacityVal">100%</b></span>
             <input type="range" class="cv-range" id="opacityRange" min="10" max="100" value="100">
           </div>
-          <label class="cv-fill-lbl" title="Fill shapes">
+          <!-- <label class="cv-fill-lbl" title="Fill shapes">
             <input type="checkbox" id="fillToggle">
             <span>Fill</span>
-          </label>
+          </label> -->
         </div>
         <!-- Hover menu -->
         <div class="cv-props-menu" id="propsMenu">
@@ -117,14 +130,6 @@
         <button class="cv-tool" id="redoBtn"     title="Redo  Ctrl+Y" disabled><i class="fa-solid fa-rotate-right"></i></button>
         <button class="cv-tool" id="clearBtn"    title="Clear canvas"><i class="fa-solid fa-trash-can"></i></button>
         <button class="cv-tool" id="downloadBtn" title="Save PNG  Ctrl+S"><i class="fa-solid fa-download"></i></button>
-      </div>
-
-      <div class="cv-div"></div>
-
-      <!-- Group / Ungroup -->
-      <div class="cv-group">
-        <button class="cv-tool" id="groupBtn"   title="Group selected  Ctrl+G"         disabled><i class="fa-solid fa-object-group"></i></button>
-        <button class="cv-tool" id="ungroupBtn" title="Ungroup  Ctrl+Shift+G"          disabled><i class="fa-solid fa-object-ungroup"></i></button>
       </div>
 
       <div class="cv-spacer"></div>
