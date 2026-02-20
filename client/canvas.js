@@ -1,6 +1,7 @@
 /**
  * Canvas drawing app — canvas.js
- * Tools: pencil, brush, marker, eraser, line, rect, circle, triangle, arrow, text
+ * Tools: pencil, brush, marker, eraser, line, rect, circle, polygon, arrow, text
+ * Features: select/move, resize handles, rotation handle, marquee selection
  */
 class CanvasApp {
   constructor() {
@@ -8,7 +9,9 @@ class CanvasApp {
     this.color    = '#e74c3c';
     this.size     = 5;
     this.opacity  = 1.0;
-    this.fillShapes = false;
+    this.fillShapes    = false;
+    this.cornerRadius = 0;
+    this.sides        = 3;
 
     // History
     this.history     = [];
@@ -31,9 +34,29 @@ class CanvasApp {
 
     // Selection state — Set of selected object IDs
     this.selectedIds = new Set();
+
+    // Drag-move state
     this.isDragging  = false;
     this.dragStart   = null;
     this.dragBases   = null; // Map<id, clonedObj>
+
+    // Resize handle state
+    // handleIndex: 0=TL 1=TC 2=TR 3=ML 4=MR 5=BL 6=BC 7=BR
+    this.isResizing      = false;
+    this.resizeHandleIdx = -1;
+    this.resizeObjId     = -1;
+    this.resizeBase      = null;
+
+    // Rotation handle state
+    this.isRotating   = false;
+    this.rotateObjId  = -1;
+    this.rotateBase   = null;
+    this.rotateCenter = null; // {x,y} center of object during rotate
+
+    // Marquee (rubber-band) selection state
+    this.isMarquee    = false;
+    this.marqueeStart = null; // {x,y}
+    this.marqueeEnd   = null; // {x,y}
 
     // Canvas elements
     this.main    = document.getElementById('mainCanvas');
@@ -47,6 +70,11 @@ class CanvasApp {
       '#f1c40f','#2ecc71','#1abc9c','#3498db',
       '#9b59b6','#e91e63','#795548','#607d8b'
     ];
+
+    // Handle geometry constants
+    this.HANDLE_R     = 5;  // radius of resize handle squares
+    this.ROT_HANDLE_R = 5;  // radius of rotation handle circle
+    this.ROT_OFFSET   = 22; // px above top-center of bounds
 
     this.init();
   }
@@ -99,6 +127,10 @@ class CanvasApp {
     this.color = c;
     document.getElementById('colorPicker').value = c;
     document.getElementById('colorPreview').style.background = c;
+    if (this.selectedIds.size > 0) {
+      this._applyPropToSelected('color', c);
+      this.saveSnap();
+    }
   }
 
   /* ── UI bindings ───────────────────────────────────────── */
@@ -118,6 +150,10 @@ class CanvasApp {
     picker.addEventListener('input', () => {
       this.color = picker.value;
       preview.style.background = picker.value;
+      this._applyPropToSelected('color', picker.value);
+    });
+    picker.addEventListener('change', () => {
+      if (this.selectedIds.size > 0) this.saveSnap();
     });
 
     // Size
@@ -126,6 +162,10 @@ class CanvasApp {
     sizeR.addEventListener('input', () => {
       this.size = parseInt(sizeR.value);
       sizeV.textContent = this.size;
+      this._applyPropToSelected('size', this.size);
+    });
+    sizeR.addEventListener('change', () => {
+      if (this.selectedIds.size > 0) this.saveSnap();
     });
 
     // Opacity
@@ -134,6 +174,10 @@ class CanvasApp {
     opR.addEventListener('input', () => {
       this.opacity = parseInt(opR.value) / 100;
       opV.textContent = opR.value + '%';
+      this._applyPropToSelected('opacity', this.opacity);
+    });
+    opR.addEventListener('change', () => {
+      if (this.selectedIds.size > 0) this.saveSnap();
     });
 
     // Fill toggle
@@ -152,6 +196,34 @@ class CanvasApp {
 
     // Download
     document.getElementById('downloadBtn').addEventListener('click', () => this.download());
+
+    // Corner rounding
+    const crR = document.getElementById('cornerRoundingRange');
+    const crV = document.getElementById('cornerRoundingVal');
+    crR.addEventListener('input', () => {
+      this.cornerRadius = parseInt(crR.value);
+      crV.textContent = this.cornerRadius;
+      this._applyPropToSelected('cornerRadius', this.cornerRadius);
+    });
+    crR.addEventListener('change', () => {
+      if (this.selectedIds.size > 0) this.saveSnap();
+    });
+
+    // Sides (polygon)
+    const sidesR = document.getElementById('sidesRange');
+    const sidesV = document.getElementById('sidesVal');
+    sidesR.addEventListener('input', () => {
+      this.sides = parseInt(sidesR.value);
+      sidesV.textContent = this.sides;
+      this._applyPropToSelected('sides', this.sides);
+    });
+    sidesR.addEventListener('change', () => {
+      if (this.selectedIds.size > 0) this.saveSnap();
+    });
+
+    // Group / Ungroup
+    document.getElementById('groupBtn').addEventListener('click',   () => this._groupSelected());
+    document.getElementById('ungroupBtn').addEventListener('click', () => this._ungroupSelected());
 
     // Close
     document.getElementById('closeBtn').addEventListener('click', () => this.close());
@@ -173,7 +245,7 @@ class CanvasApp {
     p.addEventListener('mousedown',  e => this.onDown(e));
     p.addEventListener('mousemove',  e => this.onMove(e));
     p.addEventListener('mouseup',    e => this.onUp(e));
-    p.addEventListener('mouseleave', e => { if (this.isDrawing) this.onUp(e); });
+    p.addEventListener('mouseleave', e => { if (this.isDrawing || this.isMarquee) this.onUp(e); });
 
     // Touch support
     p.addEventListener('touchstart',  e => { e.preventDefault(); this.onDown(this.t2m(e)); }, { passive: false });
@@ -183,7 +255,7 @@ class CanvasApp {
 
   t2m(e) {
     const t = e.touches[0] || e.changedTouches[0];
-    return { clientX: t.clientX, clientY: t.clientY };
+    return { clientX: t.clientX, clientY: t.clientY, shiftKey: false };
   }
 
   pos(e) {
@@ -225,7 +297,9 @@ class CanvasApp {
         color: this.color,
         size: this.size,
         opacity: this.opacity,
-        fill: this.fillShapes
+        fill: this.fillShapes,
+        cornerRadius: this.cornerRadius,
+        sides: this.sides
       };
     }
   }
@@ -234,10 +308,8 @@ class CanvasApp {
     const { x, y } = this.pos(e);
 
     if (this.tool === 'select') {
-      if (!this.isDrawing) {
-        const hov = this._findObjectAt(x, y);
-        this.preview.style.cursor = (hov && this.selectedIds.has(hov.id)) ? 'move'
-          : hov ? 'pointer' : 'default';
+      if (!this.isDrawing && !this.isMarquee) {
+        this._updateSelectCursor(x, y);
         this._drawSelectionOverlay();
         return;
       }
@@ -257,11 +329,12 @@ class CanvasApp {
   }
 
   onUp(e) {
-    if (!this.isDrawing) return;
-    this.isDrawing = false;
     const { x, y } = this.pos(e);
 
     if (this.tool === 'select') { this._handleSelectUp(x, y); return; }
+
+    if (!this.isDrawing) return;
+    this.isDrawing = false;
 
     if (this.isFreehand()) {
       this._commitFreehandStroke(x, y);
@@ -277,41 +350,89 @@ class CanvasApp {
   /* ── Select tool ───────────────────────────────────────── */
 
   _handleSelectDown(x, y, shiftKey) {
+    // 1. Check rotation handle (only when single object selected)
+    if (this.selectedIds.size === 1) {
+      const [id] = this.selectedIds;
+      const obj  = this._getObjectById(id);
+      if (obj) {
+        if (this._hitRotationHandle(obj, x, y)) {
+          this.isRotating   = true;
+          this.isDrawing    = true;
+          this.rotateObjId  = id;
+          this.rotateBase   = this._cloneObject(obj);
+          const b = this._getBoundsForOverlay(obj);
+          this.rotateCenter = { x: b.cx, y: b.cy };
+          return;
+        }
+        // 2. Check resize handles
+        const hi = this._hitResizeHandle(obj, x, y);
+        if (hi !== -1) {
+          this.isResizing      = true;
+          this.isDrawing       = true;
+          this.resizeHandleIdx = hi;
+          this.resizeObjId     = id;
+          this.resizeBase      = this._cloneObject(obj);
+          this.dragStart       = { x, y };
+          return;
+        }
+      }
+    }
+
     const hit = this._findObjectAt(x, y);
 
     if (shiftKey) {
-      // Shift+click: toggle the hit object; empty click keeps selection
       if (hit) {
         if (this.selectedIds.has(hit.id)) this.selectedIds.delete(hit.id);
         else this.selectedIds.add(hit.id);
       }
+      this._drawSelectionOverlay();
     } else {
       if (hit) {
-        // Plain click on an unselected object → replace selection
         if (!this.selectedIds.has(hit.id)) this.selectedIds = new Set([hit.id]);
-        // Plain click on already-selected object → keep selection (allow group drag)
+        // Begin drag
+        this.isDrawing  = true;
+        this.isDragging = true;
+        this.dragStart  = { x, y };
+        this.dragBases  = new Map();
+        for (const id of this.selectedIds) {
+          const o = this._getObjectById(id);
+          if (o) this.dragBases.set(id, this._cloneObject(o));
+        }
+        this._drawSelectionOverlay();
       } else {
-        // Plain click on empty space → deselect all
+        // Empty space — start marquee
         this.selectedIds.clear();
-      }
-    }
-
-    this._drawSelectionOverlay();
-
-    // Begin drag if we clicked on a selected object
-    if (hit && this.selectedIds.has(hit.id)) {
-      this.isDrawing  = true;
-      this.isDragging = true;
-      this.dragStart  = { x, y };
-      this.dragBases  = new Map();
-      for (const id of this.selectedIds) {
-        const obj = this._getObjectById(id);
-        if (obj) this.dragBases.set(id, this._cloneObject(obj));
+        this.isMarquee    = true;
+        this.marqueeStart = { x, y };
+        this.marqueeEnd   = { x, y };
+        this._drawSelectionOverlay();
       }
     }
   }
 
   _handleSelectMove(x, y) {
+    if (this.isRotating) {
+      const obj = this._getObjectById(this.rotateObjId);
+      if (!obj) return;
+      obj.rotation = Math.atan2(y - this.rotateCenter.y, x - this.rotateCenter.x) + Math.PI / 2;
+      this.renderAll();
+      this._drawSelectionOverlay();
+      return;
+    }
+
+    if (this.isResizing) {
+      this._applyResize(x, y);
+      this.renderAll();
+      this._drawSelectionOverlay();
+      return;
+    }
+
+    if (this.isMarquee) {
+      this.marqueeEnd = { x, y };
+      this._drawMarqueeOverlay();
+      return;
+    }
+
     if (!this.isDragging || this.selectedIds.size === 0) return;
     const dx = x - this.dragStart.x;
     const dy = y - this.dragStart.y;
@@ -324,12 +445,36 @@ class CanvasApp {
     this._drawSelectionOverlay();
   }
 
-  _handleSelectUp() {
+  _handleSelectUp(x, y) {
+    if (this.isRotating) {
+      this.isRotating = false;
+      this.isDrawing  = false;
+      this.saveSnap();
+      this._drawSelectionOverlay();
+      return;
+    }
+
+    if (this.isResizing) {
+      this.isResizing = false;
+      this.isDrawing  = false;
+      this.saveSnap();
+      this._drawSelectionOverlay();
+      return;
+    }
+
+    if (this.isMarquee) {
+      this.isMarquee = false;
+      this._finishMarquee();
+      return;
+    }
+
     if (this.isDragging) {
       this.isDragging = false;
+      this.isDrawing  = false;
       this.dragStart  = null;
       this.dragBases  = null;
       this.saveSnap();
+      this._drawSelectionOverlay();
     }
   }
 
@@ -339,27 +484,295 @@ class CanvasApp {
     this._drawSelectionOverlay();
   }
 
+  /* ── Marquee selection ─────────────────────────────────── */
+
+  _finishMarquee() {
+    if (!this.marqueeStart || !this.marqueeEnd) return;
+    const mx1 = Math.min(this.marqueeStart.x, this.marqueeEnd.x);
+    const my1 = Math.min(this.marqueeStart.y, this.marqueeEnd.y);
+    const mx2 = Math.max(this.marqueeStart.x, this.marqueeEnd.x);
+    const my2 = Math.max(this.marqueeStart.y, this.marqueeEnd.y);
+
+    if (mx2 - mx1 > 4 || my2 - my1 > 4) {
+      this.selectedIds.clear();
+      for (const obj of this.objects) {
+        const b = this._getAxisAlignedBounds(obj);
+        if (!b) continue;
+        if (b.x < mx2 && b.x + b.w > mx1 && b.y < my2 && b.y + b.h > my1) {
+          this.selectedIds.add(obj.id);
+        }
+      }
+    }
+    this.marqueeStart = null;
+    this.marqueeEnd   = null;
+    this._drawSelectionOverlay();
+  }
+
+  _drawMarqueeOverlay() {
+    this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
+    if (this.selectedIds.size > 0) this._drawAllSelectionHandles();
+    if (!this.marqueeStart || !this.marqueeEnd) return;
+    const x = Math.min(this.marqueeStart.x, this.marqueeEnd.x);
+    const y = Math.min(this.marqueeStart.y, this.marqueeEnd.y);
+    const w = Math.abs(this.marqueeEnd.x - this.marqueeStart.x);
+    const h = Math.abs(this.marqueeEnd.y - this.marqueeStart.y);
+    this.pctx.save();
+    this.pctx.fillStyle   = 'rgba(0,120,212,0.08)';
+    this.pctx.strokeStyle = 'rgba(0,120,212,0.8)';
+    this.pctx.lineWidth   = 1;
+    this.pctx.setLineDash([4, 4]);
+    this.pctx.fillRect(x, y, w, h);
+    this.pctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    this.pctx.restore();
+  }
+
+  /* ── Selection overlay with handles ───────────────────── */
+
   _drawSelectionOverlay() {
     this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
-    if (this.selectedIds.size === 0) return;
+    if (this.selectedIds.size === 0) {
+      this._updateGroupUI();
+      return;
+    }
+    this._drawAllSelectionHandles();
+    this._updateGroupUI();
+    this._syncControlsToSelection();
+  }
 
+  _drawAllSelectionHandles() {
     let gx1 = Infinity, gy1 = Infinity, gx2 = -Infinity, gy2 = -Infinity;
 
     for (const id of this.selectedIds) {
       const obj = this._getObjectById(id);
       if (!obj) continue;
-      const b = this._getBounds(obj);
+      const b = this._getBoundsForOverlay(obj);
       if (!b) continue;
-      this._drawDashedRect(b.x, b.y, b.w, b.h, '#0078d4');
-      gx1 = Math.min(gx1, b.x);   gy1 = Math.min(gy1, b.y);
-      gx2 = Math.max(gx2, b.x + b.w); gy2 = Math.max(gy2, b.y + b.h);
+
+      this._drawDashedRectRotated(b, '#0078d4');
+
+      if (this.selectedIds.size === 1) {
+        this._drawResizeHandles(b);
+        this._drawRotationHandle(b);
+      }
+
+      const ab = this._getAxisAlignedBounds(obj);
+      if (!ab) continue;
+      gx1 = Math.min(gx1, ab.x);        gy1 = Math.min(gy1, ab.y);
+      gx2 = Math.max(gx2, ab.x + ab.w); gy2 = Math.max(gy2, ab.y + ab.h);
     }
 
-    // Group bounding box when more than one object is selected
     if (this.selectedIds.size > 1) {
       const pad = 6;
       this._drawDashedRect(gx1 - pad, gy1 - pad, gx2 - gx1 + pad * 2, gy2 - gy1 + pad * 2, '#e74c3c');
     }
+  }
+
+  /**
+   * Returns overlay info: cx, cy = center; w, h = dimensions; angle = rotation.
+   */
+  _getBoundsForOverlay(obj) {
+    const ab = this._getAxisAlignedBoundsFromObj(obj);
+    if (!ab) return null;
+    const cx = ab.x + ab.w / 2;
+    const cy = ab.y + ab.h / 2;
+    const angle = obj.rotation || 0;
+    return { cx, cy, w: ab.w, h: ab.h, angle };
+  }
+
+  _drawDashedRectRotated(b, color) {
+    const { cx, cy, w, h, angle } = b;
+    this.pctx.save();
+    this.pctx.translate(cx, cy);
+    this.pctx.rotate(angle);
+    const x = -w / 2, y = -h / 2;
+    this.pctx.lineWidth = 1;
+    this.pctx.setLineDash([5, 5]);
+    this.pctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    this.pctx.lineDashOffset = 0;
+    this.pctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    this.pctx.strokeStyle = color;
+    this.pctx.lineDashOffset = -5;
+    this.pctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    this.pctx.restore();
+  }
+
+  _drawResizeHandles(b) {
+    const handles = this._getHandlePositions(b);
+    handles.forEach(h => {
+      this.pctx.save();
+      this.pctx.fillStyle   = '#ffffff';
+      this.pctx.strokeStyle = '#0078d4';
+      this.pctx.lineWidth   = 1.5;
+      this.pctx.setLineDash([]);
+      this.pctx.beginPath();
+      this.pctx.rect(h.x - this.HANDLE_R, h.y - this.HANDLE_R, this.HANDLE_R * 2, this.HANDLE_R * 2);
+      this.pctx.fill();
+      this.pctx.stroke();
+      this.pctx.restore();
+    });
+  }
+
+  _drawRotationHandle(b) {
+    const rh = this._getRotationHandlePos(b);
+    const topCenter = this._rotatePoint(b.cx, b.cy, b.cx, b.cy - b.h / 2, b.angle);
+    this.pctx.save();
+    this.pctx.strokeStyle = '#0078d4';
+    this.pctx.lineWidth   = 1.5;
+    this.pctx.setLineDash([]);
+    this.pctx.beginPath();
+    this.pctx.moveTo(topCenter.x, topCenter.y);
+    this.pctx.lineTo(rh.x, rh.y);
+    this.pctx.stroke();
+    this.pctx.fillStyle   = '#ffffff';
+    this.pctx.strokeStyle = '#e67e22';
+    this.pctx.beginPath();
+    this.pctx.arc(rh.x, rh.y, this.ROT_HANDLE_R, 0, Math.PI * 2);
+    this.pctx.fill();
+    this.pctx.stroke();
+    this.pctx.restore();
+  }
+
+  /** Returns 8 resize handle positions in screen space */
+  _getHandlePositions(b) {
+    const { cx, cy, w, h, angle } = b;
+    const hw = w / 2, hh = h / 2;
+    const local = [
+      { x: -hw, y: -hh }, { x: 0, y: -hh }, { x: hw, y: -hh },
+      { x: -hw, y: 0   },                    { x: hw, y: 0    },
+      { x: -hw, y: hh  }, { x: 0, y: hh  }, { x: hw, y: hh   }
+    ];
+    return local.map(p => this._rotatePoint(cx, cy, cx + p.x, cy + p.y, angle));
+  }
+
+  /** Returns the rotation handle screen-space position */
+  _getRotationHandlePos(b) {
+    return this._rotatePoint(b.cx, b.cy, b.cx, b.cy - b.h / 2 - this.ROT_OFFSET, b.angle);
+  }
+
+  /** Rotates point (px,py) around center (cx,cy) by angle radians */
+  _rotatePoint(cx, cy, px, py, angle) {
+    if (!angle) return { x: px, y: py };
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const dx = px - cx, dy = py - cy;
+    return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+  }
+
+  /** Returns handle index 0-7 if hit, else -1 */
+  _hitResizeHandle(obj, x, y) {
+    const b = this._getBoundsForOverlay(obj);
+    if (!b) return -1;
+    const handles = this._getHandlePositions(b);
+    const R = this.HANDLE_R + 3;
+    for (let i = 0; i < handles.length; i++) {
+      if (Math.hypot(x - handles[i].x, y - handles[i].y) <= R) return i;
+    }
+    return -1;
+  }
+
+  /** Returns true if (x,y) hits the rotation handle */
+  _hitRotationHandle(obj, x, y) {
+    const b = this._getBoundsForOverlay(obj);
+    if (!b) return false;
+    const rh = this._getRotationHandlePos(b);
+    return Math.hypot(x - rh.x, y - rh.y) <= this.ROT_HANDLE_R + 4;
+  }
+
+  /** Apply resize drag to the object */
+  _applyResize(x, y) {
+    const obj  = this._getObjectById(this.resizeObjId);
+    const base = this.resizeBase;
+    if (!obj || !base) return;
+
+    const type  = obj.type || obj.tool;
+    const angle = base.rotation || 0;
+    const ab    = this._getAxisAlignedBoundsFromObj(base);
+    if (!ab) return;
+    const cx = ab.x + ab.w / 2, cy = ab.y + ab.h / 2;
+
+    // Transform mouse and start point into un-rotated local space
+    const localMouse = this._rotatePoint(cx, cy, x, y, -angle);
+    const localStart = this._rotatePoint(cx, cy, this.dragStart.x, this.dragStart.y, -angle);
+    const dx = localMouse.x - localStart.x;
+    const dy = localMouse.y - localStart.y;
+
+    const hi = this.resizeHandleIdx;
+    // 0=TL 1=TC 2=TR / 3=ML 4=MR / 5=BL 6=BC 7=BR
+
+    if (type === 'stroke') {
+      const bx = ab.x, by = ab.y, bw = ab.w, bh = ab.h;
+      let nx = bx, ny = by, nw = bw, nh = bh;
+      if ([0,3,5].includes(hi)) { nx = bx + dx; nw = bw - dx; }
+      if ([2,4,7].includes(hi)) { nw = bw + dx; }
+      if ([0,1,2].includes(hi)) { ny = by + dy; nh = bh - dy; }
+      if ([5,6,7].includes(hi)) { nh = bh + dy; }
+      if (nw < 4) nw = 4; if (nh < 4) nh = 4;
+      const scaleX = bw > 0 ? nw / bw : 1;
+      const scaleY = bh > 0 ? nh / bh : 1;
+      obj.points = base.points.map(p => ({ x: nx + (p.x - bx) * scaleX, y: ny + (p.y - by) * scaleY }));
+      return;
+    }
+
+    if (type === 'text') {
+      const bh = ab.h;
+      let delta = 0;
+      if ([0,1,2].includes(hi)) delta = -dy;
+      if ([5,6,7].includes(hi)) delta = dy;
+      const scale = bh > 0 ? (bh + delta) / bh : 1;
+      obj.fontSize = Math.max(6, (base.fontSize || 14) * scale);
+      return;
+    }
+
+    if (type === 'group') {
+      const bx = ab.x, by = ab.y, bw = ab.w, bh = ab.h;
+      let nx = bx, ny = by, nw = bw, nh = bh;
+      if ([0,3,5].includes(hi)) { nx = bx + dx; nw = bw - dx; }
+      if ([2,4,7].includes(hi)) { nw = bw + dx; }
+      if ([0,1,2].includes(hi)) { ny = by + dy; nh = bh - dy; }
+      if ([5,6,7].includes(hi)) { nh = bh + dy; }
+      if (nw < 4) nw = 4; if (nh < 4) nh = 4;
+      const oldB = { x: bx, y: by, w: bw, h: bh };
+      const newB = { x: nx, y: ny, w: nw, h: nh };
+      obj.children = base.children.map(child => {
+        const c = this._cloneObject(child);
+        this._scaleObjCoords(c, oldB, newB);
+        return c;
+      });
+      return;
+    }
+
+    // Shape: manipulate x1,y1,x2,y2
+    let lx1 = Math.min(base.x1, base.x2), ly1 = Math.min(base.y1, base.y2);
+    let lx2 = Math.max(base.x1, base.x2), ly2 = Math.max(base.y1, base.y2);
+    if ([0,3,5].includes(hi)) lx1 += dx;
+    if ([2,4,7].includes(hi)) lx2 += dx;
+    if ([0,1,2].includes(hi)) ly1 += dy;
+    if ([5,6,7].includes(hi)) ly2 += dy;
+    if (lx2 - lx1 < 4) { if ([0,3,5].includes(hi)) lx1 = lx2 - 4; else lx2 = lx1 + 4; }
+    if (ly2 - ly1 < 4) { if ([0,1,2].includes(hi)) ly1 = ly2 - 4; else ly2 = ly1 + 4; }
+    const origFlipX = base.x1 > base.x2, origFlipY = base.y1 > base.y2;
+    obj.x1 = origFlipX ? lx2 : lx1; obj.y1 = origFlipY ? ly2 : ly1;
+    obj.x2 = origFlipX ? lx1 : lx2; obj.y2 = origFlipY ? ly1 : ly2;
+  }
+
+  /* ── Cursor for select tool ────────────────────────────── */
+
+  _updateSelectCursor(x, y) {
+    if (this.selectedIds.size === 1) {
+      const [id] = this.selectedIds;
+      const obj  = this._getObjectById(id);
+      if (obj) {
+        if (this._hitRotationHandle(obj, x, y)) { this.preview.style.cursor = 'grab'; return; }
+        const hi = this._hitResizeHandle(obj, x, y);
+        if (hi !== -1) {
+          const cursors = ['nw-resize','n-resize','ne-resize','w-resize',
+                           'e-resize','sw-resize','s-resize','se-resize'];
+          this.preview.style.cursor = cursors[hi];
+          return;
+        }
+      }
+    }
+    const hov = this._findObjectAt(x, y);
+    this.preview.style.cursor = (hov && this.selectedIds.has(hov.id)) ? 'move' : hov ? 'pointer' : 'default';
   }
 
   _drawDashedRect(x, y, w, h, color) {
@@ -524,6 +937,11 @@ class CanvasApp {
       if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
       if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); this.redo(); return; }
       if (e.key === 's' || e.key === 'S') { e.preventDefault(); this.download(); return; }
+      if (e.key === 'g' || e.key === 'G') {
+        e.preventDefault();
+        if (e.shiftKey) this._ungroupSelected(); else this._groupSelected();
+        return;
+      }
       if ((e.key === 'a' || e.key === 'A') && this.tool === 'select') {
         e.preventDefault();
         this.selectedIds = new Set(this.objects.map(o => o.id));
@@ -544,7 +962,7 @@ class CanvasApp {
     const toolMap = {
       v: 'select',
       p: 'pencil', b: 'brush', m: 'marker', e: 'eraser',
-      l: 'line',   r: 'rect',  c: 'circle', g: 'triangle',
+      l: 'line',   r: 'rect',  c: 'circle', g: 'polygon',
       a: 'arrow',  t: 'text'
     };
     const tool = toolMap[e.key.toLowerCase()];
@@ -609,7 +1027,10 @@ class CanvasApp {
       color: this.currentShape.color,
       size: this.currentShape.size,
       opacity: this.currentShape.opacity,
-      fill: this.currentShape.fill
+      fill: this.currentShape.fill,
+      cornerRadius: this.cornerRadius,
+      sides: this.sides,
+      rotation: 0
     };
     this.currentShape = null;
     this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
@@ -630,6 +1051,22 @@ class CanvasApp {
 
   _drawObject(ctx, obj) {
     const type = obj.type || obj.tool;
+
+    if (type === 'group') {
+      ctx.save();
+      const rotation = obj.rotation || 0;
+      if (rotation) {
+        const b = this._getAxisAlignedBoundsFromObj(obj);
+        if (b) {
+          const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+          ctx.translate(cx, cy); ctx.rotate(rotation); ctx.translate(-cx, -cy);
+        }
+      }
+      obj.children.forEach(child => this._drawObject(ctx, child));
+      ctx.restore();
+      return;
+    }
+
     if (type === 'stroke') {
       this._drawStroke(ctx, obj);
       return;
@@ -649,12 +1086,18 @@ class CanvasApp {
     ctx.lineJoin    = 'round';
     ctx.shadowBlur  = 0;
 
-    const x1 = obj.x1;
-    const y1 = obj.y1;
-    const x2 = obj.x2;
-    const y2 = obj.y2;
-    const w = x2 - x1;
-    const h = y2 - y1;
+    const x1 = obj.x1, y1 = obj.y1;
+    const x2 = obj.x2, y2 = obj.y2;
+    const w = x2 - x1, h = y2 - y1;
+
+    // Apply rotation around object center
+    const rotation = obj.rotation || 0;
+    if (rotation) {
+      const cx = x1 + w / 2, cy = y1 + h / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate(rotation);
+      ctx.translate(-cx, -cy);
+    }
 
     ctx.beginPath();
     switch (type) {
@@ -664,10 +1107,18 @@ class CanvasApp {
         ctx.stroke();
         break;
 
-      case 'rect':
-        if (obj.fill) ctx.fillRect(x1, y1, w, h);
-        else ctx.strokeRect(x1, y1, w, h);
+      case 'rect': {
+        const cr = obj.cornerRadius || 0;
+        const radius = cr > 0 ? (cr / 100) * Math.min(Math.abs(w), Math.abs(h)) / 2 : 0;
+        if (radius > 0) {
+          ctx.roundRect(x1, y1, w, h, radius);
+          if (obj.fill) ctx.fill(); else ctx.stroke();
+        } else {
+          if (obj.fill) ctx.fillRect(x1, y1, w, h);
+          else ctx.strokeRect(x1, y1, w, h);
+        }
         break;
+      }
 
       case 'circle': {
         const cx = x1 + w / 2, cy = y1 + h / 2;
@@ -679,12 +1130,48 @@ class CanvasApp {
       }
 
       case 'triangle':
-        ctx.moveTo(x1 + w / 2, y1);
-        ctx.lineTo(x2, y2);
-        ctx.lineTo(x1, y2);
+      case 'polygon': {
+        const n = (obj.sides != null ? Math.round(obj.sides) : 3);
+        const cx = x1 + w / 2, cy = y1 + h / 2;
+        const rx = Math.abs(w) / 2 || 1;
+        const ry = Math.abs(h) / 2 || 1;
+        // Start from top (-π/2) for odd-sided polygons (triangle points up)
+        const startAngle = -Math.PI / 2;
+        const cr = obj.cornerRadius || 0;
+        if (cr > 0) {
+          // Rounded polygon: arc at each vertex
+          const arcR = (cr / 100) * Math.min(rx, ry) * 0.8;
+          const verts = [];
+          for (let i = 0; i < n; i++) {
+            const a = startAngle + (i / n) * Math.PI * 2;
+            verts.push({ x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) });
+          }
+          for (let i = 0; i < n; i++) {
+            const prev = verts[(i - 1 + n) % n];
+            const cur  = verts[i];
+            const next  = verts[(i + 1) % n];
+            const d1x = cur.x - prev.x, d1y = cur.y - prev.y;
+            const d2x = next.x - cur.x, d2y = next.y - cur.y;
+            const l1 = Math.hypot(d1x, d1y), l2 = Math.hypot(d2x, d2y);
+            const t = Math.min(arcR, l1 / 2, l2 / 2);
+            const p1 = { x: cur.x - t * d1x / l1, y: cur.y - t * d1y / l1 };
+            const p2 = { x: cur.x + t * d2x / l2, y: cur.y + t * d2y / l2 };
+            if (i === 0) ctx.moveTo(p1.x, p1.y);
+            else ctx.lineTo(p1.x, p1.y);
+            ctx.quadraticCurveTo(cur.x, cur.y, p2.x, p2.y);
+          }
+        } else {
+          for (let i = 0; i < n; i++) {
+            const a = startAngle + (i / n) * Math.PI * 2;
+            const px = cx + rx * Math.cos(a);
+            const py = cy + ry * Math.sin(a);
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+        }
         ctx.closePath();
         if (obj.fill) ctx.fill(); else ctx.stroke();
         break;
+      }
 
       case 'arrow': {
         const angle  = Math.atan2(y2 - y1, x2 - x1);
@@ -717,13 +1204,25 @@ class CanvasApp {
     ctx.strokeStyle = this.rgba(stroke.color, a);
     ctx.fillStyle   = this.rgba(stroke.color, a);
     ctx.lineWidth   = stroke.tool === 'eraser' ? stroke.size * 2 : stroke.size;
-    ctx.lineCap  = 'round';
-    ctx.lineJoin = 'round';
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
     if (stroke.tool === 'brush') {
       ctx.shadowColor = stroke.color;
       ctx.shadowBlur  = stroke.size * 0.6;
     } else {
       ctx.shadowBlur = 0;
+    }
+
+    // Apply rotation around stroke bounding-box center
+    const rotation = stroke.rotation || 0;
+    if (rotation) {
+      const b = this._getAxisAlignedBoundsFromObj(stroke);
+      if (b) {
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        ctx.translate(cx, cy);
+        ctx.rotate(rotation);
+        ctx.translate(-cx, -cy);
+      }
     }
 
     const pts = stroke.points;
@@ -746,6 +1245,18 @@ class CanvasApp {
     ctx.fillStyle   = obj.color;
     ctx.font        = `${obj.fontSize}px ${obj.fontFamily}`;
     ctx.shadowBlur  = 0;
+
+    const rotation = obj.rotation || 0;
+    if (rotation) {
+      const b = this._getAxisAlignedBoundsFromObj(obj);
+      if (b) {
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        ctx.translate(cx, cy);
+        ctx.rotate(rotation);
+        ctx.translate(-cx, -cy);
+      }
+    }
+
     const lineHeight = obj.fontSize * 1.4;
     obj.lines.forEach((line, i) => {
       ctx.fillText(line, obj.x, obj.y + obj.fontSize + i * lineHeight);
@@ -770,26 +1281,58 @@ class CanvasApp {
 
   _hitTest(obj, x, y, pad = 0) {
     const type = obj.type || obj.tool;
-    if (type === 'stroke') {
-      return this._hitStroke(obj, x, y, pad);
+    const rotation = obj.rotation || 0;
+
+    // For groups: inverse-rotate the test point, then test each child
+    if (type === 'group') {
+      let gx = x, gy = y;
+      if (rotation) {
+        const b = this._getAxisAlignedBoundsFromObj(obj);
+        if (b) {
+          const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+          const p = this._rotatePoint(cx, cy, x, y, -rotation);
+          gx = p.x; gy = p.y;
+        }
+      }
+      for (const child of obj.children) {
+        if (this._hitTest(child, gx, gy, pad)) return true;
+      }
+      return false;
     }
+
+    // Transform test point into object's un-rotated local space
+    let lx = x, ly = y;
+    if (rotation) {
+      const b = this._getAxisAlignedBoundsFromObj(obj);
+      if (b) {
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        const p = this._rotatePoint(cx, cy, x, y, -rotation);
+        lx = p.x; ly = p.y;
+      }
+    }
+
+    if (type === 'stroke') return this._hitStroke(obj, lx, ly, pad);
 
     if (type === 'text') {
-      const b = this._getBounds(obj);
-      return x >= b.x - pad && x <= b.x + b.w + pad && y >= b.y - pad && y <= b.y + b.h + pad;
+      const b = this._getAxisAlignedBoundsFromObj(obj);
+      return lx >= b.x - pad && lx <= b.x + b.w + pad && ly >= b.y - pad && ly <= b.y + b.h + pad;
     }
 
-    const b = this._getBounds(obj);
+    const b = this._getAxisAlignedBoundsFromObj(obj);
     if (!b) return false;
-    if (type === 'rect' || type === 'circle' || type === 'triangle') {
+    if (type === 'rect') {
       if (obj.fill) {
-        return x >= b.x - pad && x <= b.x + b.w + pad && y >= b.y - pad && y <= b.y + b.h + pad;
+        return lx >= b.x - pad && lx <= b.x + b.w + pad && ly >= b.y - pad && ly <= b.y + b.h + pad;
       }
-      return this._hitRectOutline(b, x, y, (obj.size || this.size) + pad);
+      return this._hitRectOutline(b, lx, ly, (obj.size || this.size) + pad);
     }
-
+    if (type === 'circle' || type === 'triangle' || type === 'polygon') {
+      // Always use bounding-box containment — polygon/triangle edges are inside the bbox,
+      // so outline-only checking leaves most of the shape un-hittable.
+      return lx >= b.x - pad && lx <= b.x + b.w + pad && ly >= b.y - pad && ly <= b.y + b.h + pad;
+    }
     if (type === 'line' || type === 'arrow') {
-      return this._distToSegment(x, y, obj.x1, obj.y1, obj.x2, obj.y2) <= (obj.size || this.size) + pad;
+      return this._distToSegment(lx, ly, obj.x1, obj.y1, obj.x2, obj.y2) <= (obj.size || this.size) + pad;
     }
     return false;
   }
@@ -815,24 +1358,56 @@ class CanvasApp {
   }
 
   _getBounds(obj) {
+    return this._getAxisAlignedBoundsFromObj(obj);
+  }
+
+  /**
+   * Returns the axis-aligned bounding box accounting for rotation.
+   * Used for marquee selection and multi-select group box.
+   */
+  _getAxisAlignedBounds(obj) {
+    const local = this._getAxisAlignedBoundsFromObj(obj);
+    if (!local) return null;
+    const rotation = obj.rotation || 0;
+    if (!rotation) return local;
+    const cx = local.x + local.w / 2, cy = local.y + local.h / 2;
+    const corners = [
+      { x: local.x,           y: local.y },
+      { x: local.x + local.w, y: local.y },
+      { x: local.x + local.w, y: local.y + local.h },
+      { x: local.x,           y: local.y + local.h }
+    ];
+    const rotated = corners.map(c => this._rotatePoint(cx, cy, c.x, c.y, rotation));
+    const xs = rotated.map(p => p.x), ys = rotated.map(p => p.y);
+    return { x: Math.min(...xs), y: Math.min(...ys),
+             w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+  }
+
+  /** Returns the un-rotated logical bounding box of an object */
+  _getAxisAlignedBoundsFromObj(obj) {
     const type = obj.type || obj.tool;
+    if (type === 'group') {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const child of obj.children) {
+        const b = this._getAxisAlignedBoundsFromObj(child);
+        if (!b) continue;
+        minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+        maxX = Math.max(maxX, b.x + b.w); maxY = Math.max(maxY, b.y + b.h);
+      }
+      if (minX === Infinity) return null;
+      return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
     if (type === 'stroke') {
       const pts = obj.points;
       if (!pts || pts.length === 0) return null;
-      let minX = pts[0].x;
-      let minY = pts[0].y;
-      let maxX = pts[0].x;
-      let maxY = pts[0].y;
+      let minX = pts[0].x, minY = pts[0].y, maxX = pts[0].x, maxY = pts[0].y;
       for (const p of pts) {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
+        minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
       }
       const pad = obj.size || this.size;
       return { x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2 };
     }
-
     if (type === 'text') {
       this.ctx.save();
       this.ctx.font = `${obj.fontSize}px ${obj.fontFamily}`;
@@ -842,11 +1417,8 @@ class CanvasApp {
       const h = obj.lines.length * obj.fontSize * 1.4;
       return { x: obj.x, y: obj.y, w, h };
     }
-
-    const x1 = Math.min(obj.x1, obj.x2);
-    const y1 = Math.min(obj.y1, obj.y2);
-    const x2 = Math.max(obj.x1, obj.x2);
-    const y2 = Math.max(obj.y1, obj.y2);
+    const x1 = Math.min(obj.x1, obj.x2), y1 = Math.min(obj.y1, obj.y2);
+    const x2 = Math.max(obj.x1, obj.x2), y2 = Math.max(obj.y1, obj.y2);
     return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
   }
 
@@ -883,6 +1455,14 @@ class CanvasApp {
 
   _moveFromBase(obj, base, dx, dy) {
     const type = obj.type || obj.tool;
+    if (type === 'group') {
+      obj.children = base.children.map(baseChild => {
+        const liveChild = this._cloneObject(baseChild);
+        this._moveFromBase(liveChild, baseChild, dx, dy);
+        return liveChild;
+      });
+      return;
+    }
     if (type === 'stroke') {
       obj.points = base.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
       return;
@@ -909,6 +1489,167 @@ class CanvasApp {
   }
 
   /* ── Utility ───────────────────────────────────────────── */
+
+  /** Scale an object's coordinates from oldB bounds to newB bounds (used for resize & group resize) */
+  _scaleObjCoords(obj, oldB, newB) {
+    const sx = oldB.w > 0 ? newB.w / oldB.w : 1;
+    const sy = oldB.h > 0 ? newB.h / oldB.h : 1;
+    const type = obj.type || obj.tool;
+    if (type === 'stroke') {
+      obj.points = obj.points.map(p => ({
+        x: newB.x + (p.x - oldB.x) * sx,
+        y: newB.y + (p.y - oldB.y) * sy
+      }));
+    } else if (type === 'text') {
+      obj.x = newB.x + (obj.x - oldB.x) * sx;
+      obj.y = newB.y + (obj.y - oldB.y) * sy;
+      obj.fontSize = Math.max(6, obj.fontSize * Math.max(sx, sy));
+    } else if (type === 'group') {
+      obj.children.forEach(c => this._scaleObjCoords(c, oldB, newB));
+    } else {
+      obj.x1 = newB.x + (obj.x1 - oldB.x) * sx;
+      obj.y1 = newB.y + (obj.y1 - oldB.y) * sy;
+      obj.x2 = newB.x + (obj.x2 - oldB.x) * sx;
+      obj.y2 = newB.y + (obj.y2 - oldB.y) * sy;
+    }
+  }
+
+  /* ── Group / Ungroup ───────────────────────────────────── */
+
+  _groupSelected() {
+    if (this.selectedIds.size < 2) return;
+    const members = [];
+    for (const id of this.selectedIds) {
+      const o = this._getObjectById(id);
+      if (o) members.push(this._cloneObject(o));
+    }
+    // Preserve z-order: remove original objects, insert group at the topmost position
+    const topIdx = Math.max(
+      ...members.map(m => this.objects.findIndex(o => o.id === m.id))
+    );
+    this.objects = this.objects.filter(o => !this.selectedIds.has(o.id));
+    const group = { id: this._nextId++, type: 'group', children: members, rotation: 0 };
+    this.objects.splice(Math.min(topIdx, this.objects.length), 0, group);
+    this.selectedIds = new Set([group.id]);
+    this.renderAll();
+    this._drawSelectionOverlay();
+    this.saveSnap();
+  }
+
+  _ungroupSelected() {
+    if (this.selectedIds.size !== 1) return;
+    const [id] = this.selectedIds;
+    const group = this._getObjectById(id);
+    if (!group || (group.type || group.tool) !== 'group') return;
+
+    const groupRotation = group.rotation || 0;
+    const newIds = new Set();
+    const children = group.children.map(child => {
+      const c = this._cloneObject(child);
+      c.id = this._nextId++;
+      // Bake group rotation into each child so they render in the same spot
+      if (groupRotation) c.rotation = ((c.rotation || 0) + groupRotation);
+      newIds.add(c.id);
+      return c;
+    });
+
+    // Replace group with children at the same z-order position
+    const idx = this.objects.findIndex(o => o.id === id);
+    this.objects.splice(idx, 1, ...children);
+    this.selectedIds = newIds;
+    this.renderAll();
+    this._drawSelectionOverlay();
+    this.saveSnap();
+  }
+
+  /* ── Apply properties to selection ────────────────────── */
+
+  _applyPropToSelected(prop, value) {
+    if (this.selectedIds.size === 0) return;
+    let changed = false;
+    for (const id of this.selectedIds) {
+      const obj = this._getObjectById(id);
+      if (obj) { this._applyPropToObj(obj, prop, value); changed = true; }
+    }
+    if (changed) { this.renderAll(); this._drawSelectionOverlay(); }
+  }
+
+  _applyPropToObj(obj, prop, value) {
+    const type = obj.type || obj.tool;
+    if (type === 'group') {
+      obj.children.forEach(c => this._applyPropToObj(c, prop, value));
+      return;
+    }
+    if (prop === 'color')   { obj.color   = value; }
+    if (prop === 'opacity') { obj.opacity = value; }
+    if (prop === 'size')    {
+      if (type === 'text') obj.fontSize = Math.max(6, Math.round(value * 2.5));
+      else obj.size = value;
+    }
+    if (prop === 'cornerRadius') {
+      if (['rect', 'polygon', 'triangle'].includes(type)) obj.cornerRadius = value;
+    }
+    if (prop === 'sides') {
+      if (['polygon', 'triangle'].includes(type)) obj.sides = Math.round(value);
+    }
+  }
+
+  /* ── Sync controls to selection ───────────────────────── */
+
+  _syncControlsToSelection() {
+    // Only sync when exactly 1 non-group object or 1 group is selected
+    if (this.selectedIds.size !== 1) return;
+    const [id] = this.selectedIds;
+    const obj = this._getObjectById(id);
+    if (!obj) return;
+    // Use first child as representative for groups
+    const rep = ((obj.type || obj.tool) === 'group' && obj.children.length > 0)
+      ? obj.children[0] : obj;
+    if (rep.color) {
+      this.color = rep.color;
+      document.getElementById('colorPicker').value = rep.color;
+      document.getElementById('colorPreview').style.background = rep.color;
+    }
+    if (rep.opacity != null) {
+      this.opacity = rep.opacity;
+      const pct = Math.round(rep.opacity * 100);
+      document.getElementById('opacityRange').value = pct;
+      document.getElementById('opacityVal').textContent = pct + '%';
+    }
+    const repSize = ((rep.type || rep.tool) === 'text')
+      ? Math.round((rep.fontSize || 14) / 2.5)
+      : (rep.size != null ? rep.size : null);
+    if (repSize != null) {
+      this.size = repSize;
+      document.getElementById('sizeRange').value = repSize;
+      document.getElementById('sizeVal').textContent = repSize;
+    }
+    const repType = rep.type || rep.tool;
+    if (repType === 'rect' || repType === 'polygon' || repType === 'triangle') {
+      const cr = rep.cornerRadius != null ? rep.cornerRadius : 0;
+      this.cornerRadius = cr;
+      document.getElementById('cornerRoundingRange').value = cr;
+      document.getElementById('cornerRoundingVal').textContent = cr;
+    }
+    if (repType === 'polygon' || repType === 'triangle') {
+      const s = rep.sides != null ? rep.sides : 3;
+      this.sides = s;
+      document.getElementById('sidesRange').value = s;
+      document.getElementById('sidesVal').textContent = s;
+    }
+  }
+
+  /* ── Group/Ungroup button state ────────────────────────── */
+
+  _updateGroupUI() {
+    const groupBtn   = document.getElementById('groupBtn');
+    const ungroupBtn = document.getElementById('ungroupBtn');
+    if (!groupBtn || !ungroupBtn) return;
+    groupBtn.disabled   = this.selectedIds.size < 2;
+    const sole = this.selectedIds.size === 1
+      ? this._getObjectById([...this.selectedIds][0]) : null;
+    ungroupBtn.disabled = !(sole && (sole.type || sole.tool) === 'group');
+  }
 
   rgba(hex, a) {
     const r = parseInt(hex.slice(1, 3), 16);

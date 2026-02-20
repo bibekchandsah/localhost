@@ -42,7 +42,7 @@
         <button class="cv-tool" data-tool="line"     title="Line       [L]"><i class="fa-solid fa-minus cv-diag"></i></button>
         <button class="cv-tool" data-tool="rect"     title="Rectangle  [R]"><i class="fa-regular fa-square"></i></button>
         <button class="cv-tool" data-tool="circle"   title="Ellipse    [C]"><i class="fa-regular fa-circle"></i></button>
-        <button class="cv-tool" data-tool="triangle" title="Triangle   [G]"><i class="fa-solid fa-caret-up"></i></button>
+        <button class="cv-tool" data-tool="polygon"  title="Polygon    [G]"><i class="fa-solid fa-draw-polygon"></i></button>
         <button class="cv-tool" data-tool="arrow"    title="Arrow      [A]"><i class="fa-solid fa-arrow-right"></i></button>
       </div>
 
@@ -84,6 +84,18 @@
         <span>Fill</span>
       </label>
 
+      <!-- Corner rounding -->
+      <div class="cv-prop" id="cornerRoundingProp">
+        <span class="cv-lbl">Rounding&nbsp;<b id="cornerRoundingVal">0</b></span>
+        <input type="range" class="cv-range" id="cornerRoundingRange" min="0" max="100" value="0">
+      </div>
+
+      <!-- Sides (polygon) -->
+      <div class="cv-prop" id="sidesProp">
+        <span class="cv-lbl">Sides&nbsp;<b id="sidesVal">3</b></span>
+        <input type="range" class="cv-range" id="sidesRange" min="3" max="20" value="3">
+      </div>
+
       <div class="cv-div"></div>
 
       <!-- History & actions -->
@@ -92,6 +104,14 @@
         <button class="cv-tool" id="redoBtn"     title="Redo  Ctrl+Y" disabled><i class="fa-solid fa-rotate-right"></i></button>
         <button class="cv-tool" id="clearBtn"    title="Clear canvas"><i class="fa-solid fa-trash-can"></i></button>
         <button class="cv-tool" id="downloadBtn" title="Save PNG  Ctrl+S"><i class="fa-solid fa-download"></i></button>
+      </div>
+
+      <div class="cv-div"></div>
+
+      <!-- Group / Ungroup -->
+      <div class="cv-group">
+        <button class="cv-tool" id="groupBtn"   title="Group selected  Ctrl+G"         disabled><i class="fa-solid fa-object-group"></i></button>
+        <button class="cv-tool" id="ungroupBtn" title="Ungroup  Ctrl+Shift+G"          disabled><i class="fa-solid fa-object-ungroup"></i></button>
       </div>
 
       <div class="cv-spacer"></div>

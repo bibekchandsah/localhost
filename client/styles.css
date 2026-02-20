@@ -832,7 +832,8 @@ body.dark-mode .btn-secondary:hover {
 
 #videoPlayer {
   max-width: 100%;
-  max-height: calc(92vh - 42px);
+  /* max-height: calc(92vh - 42px); */
+  max-height: calc(80vh - 42px);
   width: 100%;
   display: block;
   outline: none;
