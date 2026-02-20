@@ -311,6 +311,9 @@
             <button class="toolbox-menu-item" id="toolboxSettingsBtn">
                 <i class="fa-solid fa-gear"></i> Settings
             </button>
+            <button class="toolbox-menu-item" id="toolboxCanvasBtn">
+                <i class="fa-solid fa-paintbrush"></i> Canvas
+            </button>
         </div>
         <button id="toolboxBtn" class="toolbox-btn" title="Toolbox">
             <i class="fa-solid fa-toolbox"></i>
@@ -358,6 +361,11 @@
             <button id="closeGlobalSearchBtn" class="btn-close">&#x2715;</button>
         </div>
         <div id="globalSearchResults" class="global-search-results"></div>
+    </div>
+
+    <!-- Canvas overlay (visibility toggled by app.js) -->
+    <div id="canvasOverlay" class="canvas-overlay">
+        <iframe id="canvasFrame" class="canvas-frame" src="canvas.html" title="Canvas"></iframe>
     </div>
 
     <script src="app.js"></script>

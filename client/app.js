@@ -122,7 +122,11 @@ class MediaBrowser {
       globalSearchPanel: document.getElementById('globalSearchPanel'),
       globalSearchInput: document.getElementById('globalSearchInput'),
       globalSearchResults: document.getElementById('globalSearchResults'),
-      globalSearchStatus: document.getElementById('globalSearchStatus')
+      globalSearchStatus: document.getElementById('globalSearchStatus'),
+
+      // Canvas overlay
+      canvasOverlay: document.getElementById('canvasOverlay'),
+      canvasFrame: document.getElementById('canvasFrame')
     };
   }
 
@@ -218,6 +222,10 @@ class MediaBrowser {
     // Settings panel
     document.getElementById('toolboxSettingsBtn').addEventListener('click', () => { this.openSettings(); this.closeToolboxMenu(); });
     document.getElementById('closeSettingsBtn').addEventListener('click', () => this.closeSettings());
+
+    // Canvas overlay
+    document.getElementById('toolboxCanvasBtn').addEventListener('click', () => { this.openCanvas(); this.closeToolboxMenu(); });
+    window.addEventListener('message', (e) => { if (e.data === 'canvas-close') this.closeCanvas(); });
     this.elements.settingThumbnails.addEventListener('change', () => {
       this.settings.thumbnails = this.elements.settingThumbnails.checked;
       this.saveSettings();
@@ -1342,6 +1350,7 @@ class MediaBrowser {
       this.closeNotes();
       this.closeShortcutModal();
       this.closeGlobalSearch();
+      this.closeCanvas();
     }
 
     if (e.key === 'Backspace' && !this.isInputFocused()) {
@@ -1639,6 +1648,21 @@ class MediaBrowser {
     addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
     addBtn.addEventListener('click', () => this.newTab());
     bar.appendChild(addBtn);
+  }
+
+  // ============ Canvas ============
+
+  openCanvas() {
+    this.elements.canvasOverlay.classList.add('cv-open');
+    // Tell the iframe to resize itself after becoming visible
+    const frame = this.elements.canvasFrame;
+    if (frame.contentWindow) {
+      frame.contentWindow.postMessage('canvas-resize', '*');
+    }
+  }
+
+  closeCanvas() {
+    this.elements.canvasOverlay.classList.remove('cv-open');
   }
 
   // ============ Settings ============

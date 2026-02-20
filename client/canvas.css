@@ -1,0 +1,234 @@
+/* ─── Reset ──────────────────────────────────────────────── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ─── Variables ──────────────────────────────────────────── */
+:root {
+  --tb:         #2d2d2d;
+  --tb-border:  #424242;
+  --bg:         #1e1e1e;
+  --hov:        #383838;
+  --act:        rgba(0, 120, 212, 0.25);
+  --acc:        #0078d4;
+  --txt:        #d4d4d4;
+  --txt2:       #888888;
+  --r:          5px;
+}
+
+/* ─── Base ───────────────────────────────────────────────── */
+body {
+  background: #ffffff;
+  color: var(--txt);
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  overflow: hidden;
+  height: 100vh;
+  user-select: none;
+}
+
+.cv-app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ─── Toolbar ────────────────────────────────────────────── */
+.cv-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 46px;
+  padding: 0 8px;
+  background: var(--tb);
+  border-bottom: 1px solid var(--tb-border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cv-toolbar::-webkit-scrollbar { display: none; }
+
+/* Brand */
+.cv-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--txt);
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 0 4px;
+}
+.cv-brand i { color: var(--acc); font-size: 14px; }
+
+/* Divider */
+.cv-div {
+  width: 1px;
+  height: 22px;
+  background: var(--tb-border);
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+.cv-spacer { flex: 1; min-width: 4px; }
+
+/* Tool groups */
+.cv-group {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+/* Tool button */
+.cv-tool {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--txt2);
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, color 0.1s;
+}
+.cv-tool:hover            { background: var(--hov); color: var(--txt); }
+.cv-tool.active           { background: var(--act); color: var(--acc); }
+.cv-tool:disabled         { opacity: 0.3; cursor: not-allowed; }
+.cv-close-btn:hover       { background: rgba(244,67,54,0.2) !important; color: #f44336 !important; }
+
+/* Diagonal line icon (for "line" tool) */
+.cv-diag { display: inline-block; transform: rotate(-45deg); }
+
+/* ─── Color ──────────────────────────────────────────────── */
+.cv-color-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.cv-color-btn {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r);
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid var(--tb-border);
+  display: block;
+  transition: border-color 0.1s;
+  flex-shrink: 0;
+}
+.cv-color-btn:hover { border-color: var(--acc); }
+
+.cv-color-preview { width: 100%; height: 100%; }
+
+.cv-color-btn input[type="color"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+}
+
+.cv-palette {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.cv-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.cv-swatch:hover { transform: scale(1.3); box-shadow: 0 0 0 2px var(--acc); }
+
+/* ─── Properties ─────────────────────────────────────────── */
+.cv-prop {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.cv-lbl {
+  font-size: 11px;
+  color: var(--txt2);
+  white-space: nowrap;
+}
+.cv-lbl b { color: var(--txt); font-weight: 600; }
+
+.cv-range {
+  width: 75px;
+  accent-color: var(--acc);
+  cursor: pointer;
+  height: 4px;
+}
+
+.cv-fill-lbl {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--txt);
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.cv-fill-lbl input {
+  accent-color: var(--acc);
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+}
+
+/* ─── Canvas Area ────────────────────────────────────────── */
+.cv-canvas-area {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+#mainCanvas,
+#previewCanvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+}
+
+#mainCanvas    { z-index: 1; }
+#previewCanvas { z-index: 2; cursor: crosshair; }
+
+/* ─── Text Overlay ───────────────────────────────────────── */
+.cv-text-overlay {
+  position: absolute;
+  z-index: 10;
+  display: none;
+}
+
+.cv-text-input {
+  background: rgba(255,255,255,0.06);
+  border: 1.5px dashed var(--acc);
+  outline: none;
+  resize: both;
+  padding: 4px 7px;
+  min-width: 90px;
+  min-height: 30px;
+  font-family: 'Segoe UI', sans-serif;
+  line-height: 1.4;
+  caret-color: currentColor;
+  overflow: hidden;
+}

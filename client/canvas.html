@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Canvas</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="canvas.css">
+</head>
+<body>
+  <div class="cv-app">
+
+    <!-- ── Toolbar ──────────────────────────────────────── -->
+    <header class="cv-toolbar">
+
+      <div class="cv-brand">
+        <i class="fa-solid fa-paintbrush"></i>
+        <span>Canvas</span>
+      </div>
+
+      <div class="cv-div"></div>
+
+      <!-- Select tool -->
+      <div class="cv-group">
+        <button class="cv-tool" data-tool="select" title="Select / Move  [V]"><i class="fa-solid fa-arrow-pointer"></i></button>
+      </div>
+
+      <div class="cv-div"></div>
+
+      <!-- Draw tools -->
+      <div class="cv-group">
+        <button class="cv-tool active" data-tool="pencil"  title="Pencil  [P]"><i class="fa-solid fa-pencil"></i></button>
+        <button class="cv-tool"        data-tool="brush"   title="Brush   [B]"><i class="fa-solid fa-paintbrush"></i></button>
+        <button class="cv-tool"        data-tool="marker"  title="Marker  [M]"><i class="fa-solid fa-marker"></i></button>
+        <button class="cv-tool"        data-tool="eraser"  title="Eraser  [E]"><i class="fa-solid fa-eraser"></i></button>
+      </div>
+
+      <div class="cv-div"></div>
+
+      <!-- Shape tools -->
+      <div class="cv-group">
+        <button class="cv-tool" data-tool="line"     title="Line       [L]"><i class="fa-solid fa-minus cv-diag"></i></button>
+        <button class="cv-tool" data-tool="rect"     title="Rectangle  [R]"><i class="fa-regular fa-square"></i></button>
+        <button class="cv-tool" data-tool="circle"   title="Ellipse    [C]"><i class="fa-regular fa-circle"></i></button>
+        <button class="cv-tool" data-tool="triangle" title="Triangle   [G]"><i class="fa-solid fa-caret-up"></i></button>
+        <button class="cv-tool" data-tool="arrow"    title="Arrow      [A]"><i class="fa-solid fa-arrow-right"></i></button>
+      </div>
+
+      <div class="cv-div"></div>
+
+      <!-- Text -->
+      <div class="cv-group">
+        <button class="cv-tool" data-tool="text" title="Text  [T]"><i class="fa-solid fa-font"></i></button>
+      </div>
+
+      <div class="cv-div"></div>
+
+      <!-- Color picker + palette -->
+      <div class="cv-color-wrap">
+        <label class="cv-color-btn" title="Pick color (click)">
+          <div class="cv-color-preview" id="colorPreview"></div>
+          <input type="color" id="colorPicker" value="#e74c3c">
+        </label>
+        <div class="cv-palette" id="palette"></div>
+      </div>
+
+      <div class="cv-div"></div>
+
+      <!-- Size -->
+      <div class="cv-prop">
+        <span class="cv-lbl">Size&nbsp;<b id="sizeVal">5</b></span>
+        <input type="range" class="cv-range" id="sizeRange" min="1" max="80" value="5">
+      </div>
+
+      <!-- Opacity -->
+      <div class="cv-prop">
+        <span class="cv-lbl">Opacity&nbsp;<b id="opacityVal">100%</b></span>
+        <input type="range" class="cv-range" id="opacityRange" min="10" max="100" value="100">
+      </div>
+
+      <!-- Fill shapes toggle -->
+      <label class="cv-fill-lbl" title="Fill shapes">
+        <input type="checkbox" id="fillToggle">
+        <span>Fill</span>
+      </label>
+
+      <div class="cv-div"></div>
+
+      <!-- History & actions -->
+      <div class="cv-group">
+        <button class="cv-tool" id="undoBtn"     title="Undo  Ctrl+Z" disabled><i class="fa-solid fa-rotate-left"></i></button>
+        <button class="cv-tool" id="redoBtn"     title="Redo  Ctrl+Y" disabled><i class="fa-solid fa-rotate-right"></i></button>
+        <button class="cv-tool" id="clearBtn"    title="Clear canvas"><i class="fa-solid fa-trash-can"></i></button>
+        <button class="cv-tool" id="downloadBtn" title="Save PNG  Ctrl+S"><i class="fa-solid fa-download"></i></button>
+      </div>
+
+      <div class="cv-spacer"></div>
+
+      <button class="cv-tool cv-close-btn" id="closeBtn" title="Close canvas">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </header>
+
+    <!-- ── Canvas area ──────────────────────────────────── -->
+    <div class="cv-canvas-area" id="cvArea">
+      <canvas id="mainCanvas"></canvas>
+      <canvas id="previewCanvas"></canvas>
+      <!-- Floating text input -->
+      <div id="textOverlay" class="cv-text-overlay">
+        <textarea id="textInput" class="cv-text-input" rows="2" placeholder="Type…"></textarea>
+      </div>
+    </div>
+
+  </div>
+  <script src="canvas.js"></script>
+</body>
+</html>
