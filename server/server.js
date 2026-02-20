@@ -246,13 +246,30 @@ app.get('/api/browse-folder', (req, res) => {
     // Use a TopMost helper Form so the dialog always appears in front of the browser.
     const tmpScript = path.join(os.tmpdir(), 'lmb_folder_picker.ps1');
     const psContent = [
-      '[void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")',
+      'Add-Type -AssemblyName System.Windows.Forms',
+      'Add-Type @"',
+      'using System;',
+      'using System.Runtime.InteropServices;',
+      'public class Win32Helper {',
+      '    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);',
+      '    [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);',
+      '}',
+      '"@',
+      '$h = New-Object System.Windows.Forms.Form',
+      '$h.TopMost = $true',
+      '$h.ShowInTaskbar = $false',
+      '$h.Opacity = 0',
+      '$h.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen',
+      '$h.Show()',
+      '[Win32Helper]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)',
+      '[void][Win32Helper]::SetForegroundWindow($h.Handle)',
+      '[Win32Helper]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)',
+      '$h.Activate()',
       '$f = New-Object System.Windows.Forms.FolderBrowserDialog',
       '$f.Description = "Select a folder to browse"',
       '$f.ShowNewFolderButton = $false',
-      '$helper = New-Object System.Windows.Forms.Form',
-      '$helper.TopMost = $true',
-      'if ($f.ShowDialog($helper) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }',
+      'if ($f.ShowDialog($h) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.SelectedPath }',
+      '$h.Dispose()',
     ].join('\r\n');
 
     try { fsNode.writeFileSync(tmpScript, psContent, 'utf8'); } catch (e) {}

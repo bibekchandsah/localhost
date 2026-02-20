@@ -21,6 +21,9 @@ class MediaBrowser {
     this.isBlurred = false;
     this.pinnedFolders = this.loadPinnedFolders();
     this.settings = this.loadSettings();
+    this.tabs = [{ id: 1, title: 'New Tab', rootDir: null, currentPath: '', folderHistory: [], files: [] }];
+    this.activeTabId = 1;
+    this.nextTabId = 2;
 
     this.initializeUI();
     this.setupEventListeners();
@@ -29,6 +32,7 @@ class MediaBrowser {
     this.loadNotesFromStorage();
     this.renderPinnedFolders();
     this.applySettings();
+    this.renderTabBar();
   }
 
   // ============ Initialization ============
@@ -377,6 +381,7 @@ class MediaBrowser {
       if (response.ok) {
         this.files = data.files;
         this.currentPath = data.currentPath;
+        this.updateTabTitle();
         this.refreshFileList();
         this.updateBreadcrumb();
         this.updateFolderTree();
@@ -1282,9 +1287,19 @@ class MediaBrowser {
         this.createContainer();
         return;
       }
-      if (e.key === 'n' || e.key === 'N') {
+      if (e.key === 'd' || e.key === 'D') {
         e.preventDefault();
         this.toggleNotes();
+        return;
+      }
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        this.newTab();
+        return;
+      }
+      if (e.key === 'w' || e.key === 'W') {
+        e.preventDefault();
+        if (this.tabs.length > 1) this.closeTab(this.activeTabId);
         return;
       }
       if (e.key === 's' || e.key === 'S') {
@@ -1313,6 +1328,7 @@ class MediaBrowser {
       if (e.key === 'k' || e.key === 'K') {
         e.preventDefault();
         this.elements.searchInput.focus();
+        return;
       }
     }
 
@@ -1506,6 +1522,123 @@ class MediaBrowser {
 
   closeShortcutModal() {
     this.elements.shortcutModal.classList.add('hidden');
+  }
+
+  // ============ Tabs ============
+
+  _tabTitleFor(rootDir, currentPath) {
+    if (!rootDir) return 'New Tab';
+    const base = rootDir.replace(/\\/g, '/').split('/').filter(Boolean).pop() || rootDir;
+    if (currentPath) {
+      const sub = currentPath.split('/').filter(Boolean).pop();
+      return sub || base;
+    }
+    return base;
+  }
+
+  saveCurrentTabState() {
+    const tab = this.tabs.find(t => t.id === this.activeTabId);
+    if (!tab) return;
+    tab.rootDir = this.rootDir;
+    tab.currentPath = this.currentPath;
+    tab.folderHistory = [...this.folderHistory];
+    tab.files = [...this.files];
+    tab.title = this._tabTitleFor(this.rootDir, this.currentPath);
+  }
+
+  loadTabState(tab) {
+    this.rootDir = tab.rootDir;
+    this.currentPath = tab.currentPath;
+    this.folderHistory = [...tab.folderHistory];
+    this.files = [...tab.files];
+    if (this.rootDir) {
+      this.showRootInfo();
+    } else {
+      this.elements.rootInfo.classList.add('hidden');
+    }
+    if (tab.files.length === 0 && tab.rootDir) {
+      this.loadFiles(tab.currentPath);
+    } else if (!tab.rootDir) {
+      this.showEmptyState();
+    } else {
+      this.refreshFileList();
+      this.updateBreadcrumb();
+      this.updateFolderTree();
+    }
+  }
+
+  switchTab(id) {
+    if (id === this.activeTabId) return;
+    this.saveCurrentTabState();
+    this.activeTabId = id;
+    const tab = this.tabs.find(t => t.id === id);
+    if (tab) this.loadTabState(tab);
+    this.renderTabBar();
+  }
+
+  newTab() {
+    this.saveCurrentTabState();
+    const id = this.nextTabId++;
+    const tab = { id, title: 'New Tab', rootDir: null, currentPath: '', folderHistory: [], files: [] };
+    this.tabs.push(tab);
+    this.activeTabId = id;
+    this.loadTabState(tab);
+    this.renderTabBar();
+  }
+
+  closeTab(id) {
+    if (this.tabs.length <= 1) return;
+    const idx = this.tabs.findIndex(t => t.id === id);
+    if (idx < 0) return;
+    const isActive = id === this.activeTabId;
+    this.tabs.splice(idx, 1);
+    if (isActive) {
+      const newIdx = Math.min(idx, this.tabs.length - 1);
+      this.activeTabId = this.tabs[newIdx].id;
+      this.loadTabState(this.tabs[newIdx]);
+    }
+    this.renderTabBar();
+  }
+
+  updateTabTitle() {
+    const tab = this.tabs.find(t => t.id === this.activeTabId);
+    if (!tab) return;
+    tab.rootDir = this.rootDir;
+    tab.currentPath = this.currentPath;
+    tab.title = this._tabTitleFor(this.rootDir, this.currentPath);
+    this.renderTabBar();
+  }
+
+  renderTabBar() {
+    const bar = document.getElementById('tabBar');
+    if (!bar) return;
+    bar.innerHTML = '';
+    this.tabs.forEach(tab => {
+      const el = document.createElement('div');
+      el.className = 'tab-item' + (tab.id === this.activeTabId ? ' active' : '');
+      const title = document.createElement('span');
+      title.className = 'tab-title';
+      title.textContent = tab.title;
+      el.appendChild(title);
+      if (this.tabs.length > 1) {
+        const close = document.createElement('button');
+        close.className = 'tab-close';
+        close.title = 'Close tab';
+        close.innerHTML = '&#x2715;';
+        close.addEventListener('click', (e) => { e.stopPropagation(); this.closeTab(tab.id); });
+        el.appendChild(close);
+      }
+      el.addEventListener('click', (e) => {
+        if (!e.target.closest('.tab-close')) this.switchTab(tab.id);
+      });
+      bar.appendChild(el);
+    });
+    const addBtn = document.createElement('button');
+    addBtn.className = 'tab-add-btn';
+    addBtn.title = 'New tab (Alt+N)';
+    addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+    addBtn.addEventListener('click', () => this.newTab());
+    bar.appendChild(addBtn);
   }
 
   // ============ Settings ============

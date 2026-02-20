@@ -1431,6 +1431,7 @@ body.blur-mode .drag-container {
   gap: 2px;
   max-height: 150px;
   overflow-y: auto;
+  flex-wrap: wrap;
 }
 
 .recent-folder-item {
@@ -1687,6 +1688,115 @@ kbd {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* ─── Tab Bar ────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  background: var(--bg-titlebar);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+.tab-bar::-webkit-scrollbar { display: none; }
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 12px;
+  min-width: 100px;
+  max-width: 200px;
+  height: 100%;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  color: var(--text-secondary);
+  font-size: 12px;
+  user-select: none;
+  position: relative;
+  transition: background 0.1s, color 0.1s;
+  flex-shrink: 0;
+}
+
+.tab-item:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.tab-item.active {
+  background: var(--bg-main);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.tab-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.tab-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+  padding: 0;
+  line-height: 1;
+}
+
+.tab-item:hover .tab-close,
+.tab-item.active .tab-close { opacity: 1; }
+
+.tab-close:hover {
+  background: rgba(244,67,54,0.15);
+  color: var(--danger);
+}
+
+.tab-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+  transition: background 0.1s, color 0.1s;
+}
+
+.tab-add-btn:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
 }
 
 /* ─── Responsive ─────────────────────────────────────────── */
