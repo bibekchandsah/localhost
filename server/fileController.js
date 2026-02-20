@@ -391,6 +391,57 @@ class FileController {
     }
   }
   /**
+   * Recursively search for files matching a query across all subfolders.
+   * @param {string} query - Search term
+   * @param {number} maxResults - Maximum results to return
+   */
+  searchFiles(query, maxResults = 200) {
+    if (!this.rootDir) return { success: false, error: 'Root directory not set' };
+    if (!query || !query.trim()) return { success: false, error: 'Query required' };
+
+    const lowerQuery = query.trim().toLowerCase();
+    const results = [];
+
+    const walk = (dir, relBase) => {
+      if (results.length >= maxResults) return;
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries) {
+        if (results.length >= maxResults) break;
+        const fullPath = path.join(dir, entry.name);
+        const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          walk(fullPath, relPath);
+        } else if (entry.isFile() && entry.name.toLowerCase().includes(lowerQuery)) {
+          try {
+            const stats = fs.statSync(fullPath);
+            const ext = getFileExtension(entry.name);
+            let category = 'other';
+            if (isVideoFile(ext)) category = 'video';
+            else if (isAudioFile(ext)) category = 'audio';
+            else if (isImageFile(ext)) category = 'image';
+            else if (isPdfFile(ext)) category = 'pdf';
+            else if (isTextFile(ext)) category = 'text';
+            results.push({
+              name: entry.name,
+              relPath,
+              folderPath: relBase || '',
+              type: 'file',
+              ext,
+              category,
+              size: stats.size,
+              modified: stats.mtime.getTime()
+            });
+          } catch { /* skip */ }
+        }
+      }
+    };
+
+    walk(this.rootDir, '');
+    return { success: true, results, truncated: results.length >= maxResults };
+  }
+
+  /**
    * Get the absolute filesystem path for a user-provided relative path.
    * Used for server-side operations like thumbnail generation.
    */

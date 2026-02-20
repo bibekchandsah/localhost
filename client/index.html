@@ -65,6 +65,7 @@
                         >
                     </div>
                     <div class="control-buttons">
+                        <button id="globalSearchBtn" class="btn-icon" title="Global search (Alt+G)"><i class="fa-solid fa-magnifying-glass"></i></button>
                         <button id="gridViewBtn" class="btn-icon active" title="Grid view"><i class="fa-solid fa-grip"></i></button>
                         <button id="listViewBtn" class="btn-icon" title="List view"><i class="fa-solid fa-list"></i></button>
                         <div class="sort-dropdown">
@@ -260,6 +261,7 @@
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>B</kbd></td><td>Toggle blur screen</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>C</kbd></td><td>New container</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>N</kbd></td><td>Toggle notes</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>G</kbd></td><td>Global search</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>S</kbd></td><td>Toggle sidebar</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>T</kbd></td><td>Toggle theme</td></tr>
                         <tr><td class="kbd-col"><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Focus search bar</td></tr>
@@ -283,6 +285,9 @@
             <button class="toolbox-menu-item" id="toolboxContainerBtn">
                 <i class="fa-solid fa-window-restore"></i> Container
             </button>
+            <button class="toolbox-menu-item" id="toolboxSettingsBtn">
+                <i class="fa-solid fa-gear"></i> Settings
+            </button>
         </div>
         <button id="toolboxBtn" class="toolbox-btn" title="Toolbox">
             <i class="fa-solid fa-toolbox"></i>
@@ -298,6 +303,38 @@
             <button id="closeNotesBtn" class="btn-close">&#x2715;</button>
         </div>
         <textarea id="notesTextarea" class="notes-textarea" placeholder="Write your notes here… (auto-saved)"></textarea>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settingsPanel" class="settings-panel hidden">
+        <div class="settings-header">
+            <i class="fa-solid fa-gear" style="color:var(--accent)"></i>
+            <span>Settings</span>
+            <button id="closeSettingsBtn" class="btn-close">&#x2715;</button>
+        </div>
+        <div class="settings-body">
+            <div class="settings-section-label">Display</div>
+            <label class="settings-row">
+                <span class="settings-row-label">Show thumbnails in grid view</span>
+                <input type="checkbox" id="settingThumbnails" class="settings-checkbox">
+            </label>
+            <div class="settings-section-label" style="margin-top:14px">Accessibility</div>
+            <div class="settings-row settings-row-col">
+                <span class="settings-row-label">Font size <span id="fontSizeValue">13px</span></span>
+                <input type="range" id="settingFontSize" class="settings-slider" min="11" max="18" step="1" value="13">
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Search Panel -->
+    <div id="globalSearchPanel" class="global-search-panel hidden">
+        <div class="global-search-header">
+            <i class="fa-solid fa-magnifying-glass" style="color:var(--accent)"></i>
+            <input id="globalSearchInput" class="global-search-input" type="text" placeholder="Search across all subfolders…" autocomplete="off" spellcheck="false">
+            <span id="globalSearchStatus" class="global-search-status"></span>
+            <button id="closeGlobalSearchBtn" class="btn-close">&#x2715;</button>
+        </div>
+        <div id="globalSearchResults" class="global-search-results"></div>
     </div>
 
     <script src="app.js"></script>

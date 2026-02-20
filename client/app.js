@@ -20,6 +20,7 @@ class MediaBrowser {
     this.isNotesOpen = false;
     this.isBlurred = false;
     this.pinnedFolders = this.loadPinnedFolders();
+    this.settings = this.loadSettings();
 
     this.initializeUI();
     this.setupEventListeners();
@@ -27,6 +28,7 @@ class MediaBrowser {
     this.applyDarkMode();
     this.loadNotesFromStorage();
     this.renderPinnedFolders();
+    this.applySettings();
   }
 
   // ============ Initialization ============
@@ -103,7 +105,20 @@ class MediaBrowser {
       clearNotesBtn: document.getElementById('clearNotesBtn'),
 
       // Shortcut modal
-      shortcutModal: document.getElementById('shortcutModal')
+      shortcutModal: document.getElementById('shortcutModal'),
+
+      // Settings panel
+      settingsPanel: document.getElementById('settingsPanel'),
+      settingThumbnails: document.getElementById('settingThumbnails'),
+      settingFontSize: document.getElementById('settingFontSize'),
+      fontSizeValue: document.getElementById('fontSizeValue'),
+
+      // Global search
+      globalSearchBtn: document.getElementById('globalSearchBtn'),
+      globalSearchPanel: document.getElementById('globalSearchPanel'),
+      globalSearchInput: document.getElementById('globalSearchInput'),
+      globalSearchResults: document.getElementById('globalSearchResults'),
+      globalSearchStatus: document.getElementById('globalSearchStatus')
     };
   }
 
@@ -194,6 +209,36 @@ class MediaBrowser {
     document.getElementById('closeShortcutBtn').addEventListener('click', () => this.closeShortcutModal());
     this.elements.shortcutModal.addEventListener('click', (e) => {
       if (e.target === this.elements.shortcutModal) this.closeShortcutModal();
+    });
+
+    // Settings panel
+    document.getElementById('toolboxSettingsBtn').addEventListener('click', () => { this.openSettings(); this.closeToolboxMenu(); });
+    document.getElementById('closeSettingsBtn').addEventListener('click', () => this.closeSettings());
+    this.elements.settingThumbnails.addEventListener('change', () => {
+      this.settings.thumbnails = this.elements.settingThumbnails.checked;
+      this.saveSettings();
+      this.refreshFileList();
+    });
+    this.elements.settingFontSize.addEventListener('input', () => {
+      this.settings.fontSize = parseInt(this.elements.settingFontSize.value);
+      this.elements.fontSizeValue.textContent = this.settings.fontSize + 'px';
+      this.applySettings();
+      this.saveSettings();
+    });
+
+    // Global search
+    this.elements.globalSearchBtn.addEventListener('click', () => this.openGlobalSearch());
+    document.getElementById('closeGlobalSearchBtn').addEventListener('click', () => this.closeGlobalSearch());
+    this._globalSearchDebounce = null;
+    this.elements.globalSearchInput.addEventListener('input', () => {
+      clearTimeout(this._globalSearchDebounce);
+      const q = this.elements.globalSearchInput.value.trim();
+      if (!q) { this.elements.globalSearchResults.innerHTML = ''; this.elements.globalSearchStatus.textContent = ''; return; }
+      this.elements.globalSearchStatus.textContent = 'Searching…';
+      this._globalSearchDebounce = setTimeout(() => this.runGlobalSearch(q), 400);
+    });
+    this.elements.globalSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.closeGlobalSearch();
     });
 
     // Player
@@ -423,9 +468,9 @@ class MediaBrowser {
 
     // Build icon or thumbnail section
     let iconSection;
-    if (this.viewMode === 'grid' && file.category === 'image') {
+    if (this.settings.thumbnails && this.viewMode === 'grid' && file.category === 'image') {
       iconSection = `<div class="file-icon file-thumb"><img class="thumb-img" data-src="/api/stream?path=${encodeURIComponent(filePath)}" alt=""></div>`;
-    } else if (this.viewMode === 'grid' && file.category === 'video') {
+    } else if (this.settings.thumbnails && this.viewMode === 'grid' && file.category === 'video') {
       iconSection = `<div class="file-icon file-thumb video-thumb-wrap"><img class="thumb-img" data-src="/api/thumbnail?path=${encodeURIComponent(filePath)}" alt=""><span class="video-play-badge"><i class="fa-solid fa-play"></i></span></div>`;
     } else {
       iconSection = `<div class="file-icon">${this.getFileIcon(file)}</div>`;
@@ -1257,6 +1302,11 @@ class MediaBrowser {
         this.openShortcutModal();
         return;
       }
+      if (e.key === 'g' || e.key === 'G') {
+        e.preventDefault();
+        this.openGlobalSearch();
+        return;
+      }
     }
 
     if (e.ctrlKey || e.metaKey) {
@@ -1275,6 +1325,7 @@ class MediaBrowser {
       this.closeToolboxMenu();
       this.closeNotes();
       this.closeShortcutModal();
+      this.closeGlobalSearch();
     }
 
     if (e.key === 'Backspace' && !this.isInputFocused()) {
@@ -1455,6 +1506,105 @@ class MediaBrowser {
 
   closeShortcutModal() {
     this.elements.shortcutModal.classList.add('hidden');
+  }
+
+  // ============ Settings ============
+
+  loadSettings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('mediaBrowserSettings') || '{}');
+      return {
+        thumbnails: saved.thumbnails !== undefined ? saved.thumbnails : true,
+        fontSize: saved.fontSize || 13
+      };
+    } catch { return { thumbnails: true, fontSize: 13 }; }
+  }
+
+  saveSettings() {
+    localStorage.setItem('mediaBrowserSettings', JSON.stringify(this.settings));
+  }
+
+  applySettings() {
+    document.documentElement.style.zoom = this.settings.fontSize / 13;
+    if (this.elements.settingThumbnails) this.elements.settingThumbnails.checked = this.settings.thumbnails;
+    if (this.elements.settingFontSize) {
+      this.elements.settingFontSize.value = this.settings.fontSize;
+      this.elements.fontSizeValue.textContent = this.settings.fontSize + 'px';
+    }
+  }
+
+  openSettings() {
+    this.elements.settingsPanel.classList.remove('hidden');
+    this.applySettings();
+  }
+
+  closeSettings() {
+    this.elements.settingsPanel.classList.add('hidden');
+  }
+
+  // ============ Global Search ============
+
+  openGlobalSearch() {
+    if (!this.rootDir) { this.showNotification('Select a folder first', 'warning'); return; }
+    this.elements.globalSearchPanel.classList.remove('hidden');
+    setTimeout(() => this.elements.globalSearchInput.focus(), 40);
+  }
+
+  closeGlobalSearch() {
+    this.elements.globalSearchPanel.classList.add('hidden');
+    this.elements.globalSearchInput.value = '';
+    this.elements.globalSearchResults.innerHTML = '';
+    this.elements.globalSearchStatus.textContent = '';
+    clearTimeout(this._globalSearchDebounce);
+  }
+
+  async runGlobalSearch(q) {
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (!res.ok) { this.elements.globalSearchStatus.textContent = 'Error: ' + (data.error || '?'); return; }
+      const count = data.results.length;
+      this.elements.globalSearchStatus.textContent = count === 0 ? 'No results' : `${count}${data.truncated ? '+' : ''} result${count !== 1 ? 's' : ''}`;
+      this.renderGlobalSearchResults(data.results);
+    } catch (err) {
+      this.elements.globalSearchStatus.textContent = 'Error';
+    }
+  }
+
+  renderGlobalSearchResults(results) {
+    const container = this.elements.globalSearchResults;
+    container.innerHTML = '';
+    if (!results.length) {
+      container.innerHTML = '<div class="global-search-empty">No files found</div>';
+      return;
+    }
+    results.forEach(file => {
+      const row = document.createElement('div');
+      row.className = 'global-search-row';
+      const icon = this.getFileIcon(file);
+      row.innerHTML = `
+        <div class="gs-icon">${icon}</div>
+        <div class="gs-info">
+          <div class="gs-name" title="${this.escapeHtml(file.relPath)}">${this.escapeHtml(file.name)}</div>
+          <div class="gs-path">${this.escapeHtml(file.folderPath || '/')}</div>
+        </div>
+        <div class="gs-size">${this.formatFileSize(file.size)}</div>
+      `;
+      row.addEventListener('click', () => {
+        // Navigate to the folder containing this file, then open it
+        this.closeGlobalSearch();
+        const openFile = () => {
+          const match = this.files.find(f => f.name === file.name);
+          if (match) this.openFile(match);
+        };
+        if (file.folderPath && file.folderPath !== this.currentPath) {
+          this.loadFiles(file.folderPath).then(() => { setTimeout(openFile, 150); });
+        } else {
+          openFile();
+        }
+      });
+      container.appendChild(row);
+    });
   }
 
   // ============ Recent Folders ============

@@ -280,6 +280,18 @@ app.get('/api/browse-folder', (req, res) => {
 });
 
 /**
+ * Global recursive file search
+ * GET /api/search?q=query
+ */
+app.get('/api/search', (req, res) => {
+  const { q, max } = req.query;
+  if (!q) return res.status(400).json({ error: 'q parameter required' });
+  const result = fileController.searchFiles(q, max ? parseInt(max) : 200);
+  if (result.success) res.json(result);
+  else res.status(400).json(result);
+});
+
+/**
  * Generate video thumbnail via FFmpeg
  * GET /api/thumbnail?path=file/path
  */
