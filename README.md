@@ -1,4 +1,218 @@
-# 🎬 Local Media Browser
+# 🖥️ Local Media Browser + Canvas
+
+A fully local web app combining a **file explorer / media player** and a **full-featured canvas drawing tool** — no internet required after startup, nothing uploaded anywhere.
+
+---
+
+## ✨ Features
+
+### 📁 File Browser
+- **Directory browsing** — navigate any folder on your PC
+- **Breadcrumb navigation** — click any segment to jump up the tree
+- **Search & filter** — instant filtering as you type (`Ctrl+K` to focus)
+- **Sort options** — by name, size, or date modified
+- **Grid / List view** — toggle between compact grid and detailed list
+- **Dark mode** — theme preference saved in localStorage
+
+### 🎬 Media Player
+- **Video** — `.ts`, `.mp4`, `.mkv`, `.webm`, `.mov`, `.avi`, `.m3u8`
+  - HTTP range requests — stream large files without full load
+  - HLS adaptive streaming via HLS.js
+- **Audio** — `.mp3`, `.wav`, `.aac`, `.flac`, `.ogg`, `.m4a`
+- **Image preview** — `.jpg`, `.png`, `.webp`, `.gif`, `.bmp`, `.svg`
+- **Text / code viewer** — `.txt`, `.js`, `.json`, `.html`, `.css`, `.md`, `.py`, `.java`, `.cpp`, `.xml`, `.yaml`, `.csv`
+- **Download** — any file type can be downloaded directly
+
+### 🎨 Canvas Drawing Tool (`/canvas.html`)
+
+#### Drawing Tools
+| Tool | Shortcut | Description |
+|------|----------|-------------|
+| Select / Move | `V` | Click to select, drag to move |
+| Pencil | `P` | Freehand thin line |
+| Brush | `B` | Soft freehand stroke with glow |
+| Marker | `M` | Semi-transparent freehand stroke |
+| Eraser | `E` | Erase freehand strokes |
+| Text | `T` | Click anywhere to place editable text |
+
+#### Shape Tools (24 shapes in flyout grid)
+**Basic:** Line `L`, Rectangle `R`, Ellipse `C`, Polygon `G`, Arrow `A`, Pill, Diamond, Parallelogram
+
+**Quads:** Trapezoid, Inverted Trapezoid, Cross, Pincushion Frame
+
+**Organic:** Heart, Cloud, Speech Bubble, Oval Speech Bubble, Bookmark, Ribbon
+
+**Structural:** Arch (door), D-shape (stadium)
+
+**Stars:** Star *(N-pointed via Sides slider)*, Starburst / Seal *(N-pointed via Sides slider)*
+
+**Polygons:** Triangle, Hexagon
+
+#### Selection & Transform
+- **Click** to select a single object
+- **Marquee / rubber-band** — drag blank canvas to select multiple objects
+- **Drag** selected objects to move
+- **8 resize handles** — drag corner/edge handles to resize; hold `Shift` to lock aspect ratio
+- **Rotation handle** — drag the circular handle above selection to rotate freely
+- **Multi-select resize & rotate** — resize/rotate a whole group of objects together
+- **Group** (`Ctrl+G`) — combine selected objects into a single group
+- **Ungroup** (`Ctrl+Shift+G`) — break a group apart
+
+#### Property Controls
+- **Size** slider (1–80) — stroke / outline thickness; mouse-wheel supported
+- **Opacity** slider (10–100 %) — object transparency; mouse-wheel supported
+- **Rounding** slider (0–100) — corner radius for rect, polygon, triangle, hexagon, star, starburst; mouse-wheel supported
+- **Sides** slider (3–20) — vertex count for polygon, triangle, hexagon, star, starburst; mouse-wheel supported
+- All four sliders also respond to **mouse-wheel** scroll (hold `Shift` for 5× speed)
+- **Fill toggle** — filled vs. outline-only shapes
+- **Live update** — moving a slider immediately re-renders the selected object(s)
+
+#### Colour & Background
+- **Colour swatch** — click to open colour picker (supports hex + 12 preset swatches)
+- **Palette** — 12-colour quick-pick strip; hover for expanded palette
+- **Background colour** — pick any colour for the canvas background
+- **Background eye toggle** — hide background for a transparent canvas; PNG export respects transparency
+- **Shift-constrain drawing** — hold `Shift` while drawing to force perfect square / circle
+
+#### History & Export
+- **Undo** `Ctrl+Z` (50 levels)
+- **Redo** `Ctrl+Y`
+- **Clear canvas** — with confirmation
+- **Save PNG** `Ctrl+S` — exports to a timestamped PNG; uses background colour or transparent if background hidden
+
+#### Keyboard Shortcuts (Canvas)
+| Shortcut | Action |
+|----------|--------|
+| `V` | Select tool |
+| `P` | Pencil |
+| `B` | Brush |
+| `M` | Marker |
+| `E` | Eraser |
+| `T` | Text |
+| `R` | Rectangle |
+| `C` | Ellipse |
+| `L` | Line |
+| `A` | Arrow |
+| `G` | Polygon |
+| `Ctrl+G` | Group selection |
+| `Ctrl+Shift+G` | Ungroup |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` | Redo |
+| `Ctrl+S` | Save PNG |
+| `Delete` / `Backspace` | Delete selected objects |
+| `Shift` (hold while drawing) | Constrain to square / circle |
+| `Shift` (hold while resizing) | Lock aspect ratio |
+
+---
+
+## 🛠️ Installation
+
+### Prerequisites
+- **Node.js** v14 or later
+- **npm** (bundled with Node.js)
+
+### Setup
+```bash
+cd "d:\programming exercise\HTML\self host"
+npm install
+```
+
+Dependencies installed: `express`, `cors`, `mime-types`
+
+---
+
+## 🚀 Running
+
+```bash
+npm start
+# or
+node server/server.js
+```
+
+Open **http://localhost:3000** in your browser.
+
+To use a different port:
+```bash
+PORT=3001 node server/server.js
+```
+
+---
+
+## 📖 Usage
+
+### File Browser
+1. Click **📁 Select Folder** and enter a local path (e.g. `D:\Videos`)
+2. Click **✓ Open**
+3. Navigate folders, search, sort, and preview media
+
+### Canvas
+1. Open **http://localhost:3000/canvas.html**
+2. Pick a draw/shape tool from the toolbar flyouts
+3. Draw on the canvas; use the property sliders to adjust thickness, opacity, rounding, and sides
+4. Select objects with `V` to move, resize, or rotate them
+5. Export with `Ctrl+S`
+
+---
+
+## 🏗️ Project Structure
+
+```
+├── server/
+│   ├── server.js          # Express server + API routes
+│   ├── fileController.js  # File system operations
+│   └── utils.js           # Path sanitization & helpers
+├── client/
+│   ├── index.html         # File browser UI
+│   ├── app.js             # File browser logic (~2000 lines)
+│   ├── styles.css         # File browser styles
+│   ├── canvas.html        # Canvas drawing app
+│   ├── canvas.js          # Canvas engine (~2600 lines)
+│   ├── canvas.css         # Canvas styles
+│   └── favicon/           # Icons & manifest
+├── package.json
+└── README.md
+```
+
+---
+
+## 📋 API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/set-root` | Set root directory |
+| `GET` | `/api/root` | Get current root (returns `null` if unset) |
+| `GET` | `/api/files?path=` | List directory contents |
+| `GET` | `/api/file-stats?path=` | Get file metadata |
+| `GET` | `/api/read-text?path=` | Read text file content |
+| `GET` | `/api/stream?path=` | Stream file (range requests supported) |
+| `GET` | `/api/download?path=` | Download file |
+| `GET` | `/api/health` | Server health check |
+
+---
+
+## 🔒 Security
+
+- Path traversal prevention — cannot access files outside root directory
+- All user input validated and normalised
+- Errors returned without exposing system information
+- No data is uploaded or sent anywhere
+
+---
+
+## 🐛 Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| `Cannot find module` | Run `npm install` |
+| Port 3000 in use | `PORT=3001 npm start` → open `http://localhost:3001` |
+| Video won't play | Try Chrome/Firefox; check codec support |
+| Files not showing | Check folder path exists and you have read permission |
+| Canvas blank on load | Hard-refresh (`Ctrl+Shift+R`) to clear cached JS |
+
+---
+
+**Built with Node.js, Express, and Vanilla JavaScript**
+
 
 A fully functional local web-based file explorer and media player. Browse your local files, preview videos, audio, images, and text files—all without uploading data anywhere.
 

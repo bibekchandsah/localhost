@@ -47,12 +47,37 @@
         <button class="cv-tool" id="shapeTrigger" data-tool="rect" title="Rectangle [R]">
           <i class="fa-regular fa-square"></i>
         </button>
-        <div class="cv-flyout-menu">
-          <button class="cv-tool" data-tool="line"    title="Line       [L]"><i class="fa-solid fa-minus cv-diag"></i></button>
-          <button class="cv-tool" data-tool="rect"    title="Rectangle  [R]"><i class="fa-regular fa-square"></i></button>
-          <button class="cv-tool" data-tool="circle"  title="Ellipse    [C]"><i class="fa-regular fa-circle"></i></button>
-          <button class="cv-tool" data-tool="polygon" title="Polygon    [G]"><i class="fa-solid fa-draw-polygon"></i></button>
-          <button class="cv-tool" data-tool="arrow"   title="Arrow      [A]"><i class="fa-solid fa-arrow-right"></i></button>
+        <div class="cv-flyout-menu cv-shape-menu">
+          <!-- ── Basic ── -->
+          <button class="cv-tool" data-tool="line"         title="Line [L]"><i class="fa-solid fa-minus cv-diag"></i></button>
+          <button class="cv-tool" data-tool="rect"         title="Rectangle [R]"><i class="fa-regular fa-square"></i></button>
+          <button class="cv-tool" data-tool="circle"       title="Ellipse [C]"><i class="fa-regular fa-circle"></i></button>
+          <button class="cv-tool" data-tool="polygon"      title="Polygon [G]"><i class="fa-solid fa-draw-polygon"></i></button>
+          <button class="cv-tool" data-tool="arrow"        title="Arrow [A]"><i class="fa-solid fa-arrow-right"></i></button>
+          <button class="cv-tool" data-tool="pill"         title="Pill / Stadium"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><rect x="2" y="5" width="12" height="6" rx="3"/></svg></button>
+          <button class="cv-tool" data-tool="diamond"      title="Diamond"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><polygon points="8,1 15,8 8,15 1,8"/></svg></button>
+          <button class="cv-tool" data-tool="parallelogram" title="Parallelogram"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><polygon points="4,1 16,1 12,15 0,15"/></svg></button>
+          <!-- ── Special quads ── -->
+          <button class="cv-tool" data-tool="trapezoid"    title="Trapezoid"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><polygon points="3,1 13,1 16,15 0,15"/></svg></button>
+          <button class="cv-tool" data-tool="trapdown"     title="Trapezoid (wide top)"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><polygon points="0,1 16,1 13,15 3,15"/></svg></button>
+          <button class="cv-tool" data-tool="cross"        title="Cross"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M6,0h4v6h6v4h-6v6h-4v-6H0V6h6z"/></svg></button>
+          <button class="cv-tool" data-tool="frame"        title="Pincushion Frame"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M0,0 Q8,2 16,0 Q14,8 16,16 Q8,14 0,16 Q2,8 0,0z"/></svg></button>
+          <!-- ── Organic ── -->
+          <button class="cv-tool" data-tool="heart"        title="Heart"><i class="fa-solid fa-heart"></i></button>
+          <button class="cv-tool" data-tool="cloud"        title="Cloud"><i class="fa-solid fa-cloud"></i></button>
+          <button class="cv-tool" data-tool="speechbubble" title="Speech Bubble"><i class="fa-regular fa-comment"></i></button>
+          <button class="cv-tool" data-tool="speechoval"   title="Speech Bubble (oval)"><i class="fa-regular fa-comment-dots"></i></button>
+          <button class="cv-tool" data-tool="bookmark"     title="Bookmark"><i class="fa-solid fa-bookmark"></i></button>
+          <button class="cv-tool" data-tool="ribbon"       title="Ribbon"><i class="fa-solid fa-ribbon"></i></button>
+          <!-- ── Arch / D ── -->
+          <button class="cv-tool" data-tool="arch"         title="Arch (door)"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M1,15 L1,7 A7,7 0 0,1 15,7 L15,15z"/></svg></button>
+          <button class="cv-tool" data-tool="stadium"      title="D-shape"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M1,1 L15,1 L15,9 A7,5 0 0,1 1,9z"/></svg></button>
+          <!-- ── Stars / Bursts (use Sides slider) ── -->
+          <button class="cv-tool" data-tool="star"         title="Star — adjust Sides slider"><i class="fa-solid fa-star"></i></button>
+          <button class="cv-tool" data-tool="starburst"    title="Starburst / Seal — adjust Sides slider"><i class="fa-solid fa-sun"></i></button>
+          <!-- ── Polygon basics ── -->
+          <button class="cv-tool" data-tool="triangle"     title="Triangle"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><polygon points="8,1 15,15 1,15"/></svg></button>
+          <button class="cv-tool" data-tool="hexagon"      title="Hexagon"><svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><polygon points="8,1 14.9,4.5 14.9,11.5 8,15 1.1,11.5 1.1,4.5"/></svg></button>
         </div>
       </div>
 
@@ -88,6 +113,20 @@
           <div class="cv-palette" id="palette"></div>
           <div class="cv-palette-menu" id="paletteMenu"></div>
         </div>
+      </div>
+
+      <div class="cv-div"></div>
+
+      <!-- Background color + visibility -->
+      <div class="cv-group">
+        <span class="cv-lbl" style="padding:0 2px">Bg</span>
+        <label class="cv-color-btn" title="Canvas background color" id="bgColorBtn">
+          <div class="cv-color-preview" id="bgColorPreview"></div>
+          <input type="color" id="bgColorPicker" value="#252525">
+        </label>
+        <button class="cv-tool active" id="bgToggle" title="Show / hide background layer">
+          <i class="fa-solid fa-eye"></i>
+        </button>
       </div>
 
       <div class="cv-div"></div>

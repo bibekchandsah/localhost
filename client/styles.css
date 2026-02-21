@@ -2017,6 +2017,7 @@ body.dark-mode .csv-header-icon { color: #4ade80; }
   width: 1200px;
   max-height: 95vh;
   height: 95vh;
+  height: 85vh;
   display: flex;
   flex-direction: column;
   padding: 0;

@@ -451,7 +451,7 @@ class MediaBrowser {
           return b.modified - a.modified;
         case 'name':
         default:
-          return a.name.localeCompare(b.name);
+          return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
       }
     };
 

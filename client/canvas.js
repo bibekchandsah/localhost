@@ -12,6 +12,8 @@ class CanvasApp {
     this.fillShapes    = false;
     this.cornerRadius = 0;
     this.sides        = 3;
+    this.bgColor      = '#252525';
+    this.bgVisible    = true;
 
     // History
     this.history     = [];
@@ -152,6 +154,20 @@ class CanvasApp {
   /* ── UI bindings ───────────────────────────────────────── */
 
   bindUI() {
+    // Utility: make a range input respond to mouse-wheel
+    const addWheel = (el, step = 1) => {
+      el.addEventListener('wheel', e => {
+        e.preventDefault();
+        const dir   = e.deltaY < 0 ? 1 : -1;
+        const min   = parseFloat(el.min)  || 0;
+        const max   = parseFloat(el.max)  || 100;
+        const s     = step * (e.shiftKey ? 5 : 1);
+        el.value    = Math.min(max, Math.max(min, parseFloat(el.value) + dir * s));
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }, { passive: false });
+    };
+
     // Tool buttons
     document.querySelectorAll('.cv-tool[data-tool]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -175,6 +191,7 @@ class CanvasApp {
     // Size
     const sizeR = document.getElementById('sizeRange');
     const sizeV = document.getElementById('sizeVal');
+    addWheel(sizeR, 1);
     sizeR.addEventListener('input', () => {
       this.size = parseInt(sizeR.value);
       sizeV.textContent = this.size;
@@ -191,6 +208,7 @@ class CanvasApp {
     // Opacity
     const opR = document.getElementById('opacityRange');
     const opV = document.getElementById('opacityVal');
+    addWheel(opR, 1);
     opR.addEventListener('input', () => {
       this.opacity = parseInt(opR.value) / 100;
       opV.textContent = opR.value + '%';
@@ -203,6 +221,25 @@ class CanvasApp {
     // Fill toggle
     document.getElementById('fillToggle').addEventListener('change', e => {
       this.fillShapes = e.target.checked;
+    });
+
+    // Background color + visibility
+    const bgPicker  = document.getElementById('bgColorPicker');
+    const bgPreview = document.getElementById('bgColorPreview');
+    bgPreview.style.background = this.bgColor;
+    bgPicker.value = this.bgColor;
+    bgPicker.addEventListener('input', () => {
+      this.bgColor = bgPicker.value;
+      bgPreview.style.background = bgPicker.value;
+      this.renderAll();
+    });
+    document.getElementById('bgToggle').addEventListener('click', () => {
+      this.bgVisible = !this.bgVisible;
+      const btn = document.getElementById('bgToggle');
+      btn.querySelector('i').className = this.bgVisible ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+      btn.classList.toggle('active', this.bgVisible);
+      this.wrap.classList.toggle('bg-hidden', !this.bgVisible);
+      this.renderAll();
     });
 
     // History
@@ -220,6 +257,7 @@ class CanvasApp {
     // Corner rounding
     const crR = document.getElementById('cornerRoundingRange');
     const crV = document.getElementById('cornerRoundingVal');
+    addWheel(crR, 1);
     crR.addEventListener('input', () => {
       this.cornerRadius = parseInt(crR.value);
       crV.textContent = this.cornerRadius;
@@ -232,6 +270,7 @@ class CanvasApp {
     // Sides (polygon)
     const sidesR = document.getElementById('sidesRange');
     const sidesV = document.getElementById('sidesVal');
+    addWheel(sidesR, 1);
     sidesR.addEventListener('input', () => {
       this.sides = parseInt(sidesR.value);
       sidesV.textContent = this.sides;
@@ -1217,13 +1256,15 @@ class CanvasApp {
   }
 
   download() {
-    // Composite onto white background so PNG isn't transparent
+    // Composite onto background (or transparent if bg hidden)
     const tmp    = document.createElement('canvas');
     tmp.width    = this.main.width;
     tmp.height   = this.main.height;
     const tc     = tmp.getContext('2d');
-    tc.fillStyle = '#ffffff';
-    tc.fillRect(0, 0, tmp.width, tmp.height);
+    if (this.bgVisible) {
+      tc.fillStyle = this.bgColor;
+      tc.fillRect(0, 0, tmp.width, tmp.height);
+    }
     tc.drawImage(this.main, 0, 0);
 
     const a      = document.createElement('a');
@@ -1293,8 +1334,23 @@ class CanvasApp {
     this.tool = name;
     const isBrush = ['pencil','brush','marker','eraser'].includes(name);
     if (isBrush) this._updateBrushTrigger(name);
-    const isShape = ['line','rect','circle','polygon','arrow'].includes(name);
+    const isShape = [
+      'line','rect','circle','polygon','triangle','hexagon','arrow',
+      'pill','diamond','parallelogram','trapezoid','trapdown',
+      'cross','frame','heart','cloud','speechbubble','speechoval',
+      'bookmark','ribbon','arch','stadium',
+      'star','starburst'
+    ].includes(name);
     if (isShape) this._updateFlyoutTrigger('shapeFlyout', name);
+    // Snap sides slider to the natural default when switching to a fixed-polygon tool
+    const defaultSides = name === 'triangle' ? 3 : name === 'hexagon' ? 6 : null;
+    if (defaultSides !== null) {
+      this.sides = defaultSides;
+      const sr = document.getElementById('sidesRange');
+      const sv = document.getElementById('sidesVal');
+      if (sr) sr.value = defaultSides;
+      if (sv) sv.textContent = defaultSides;
+    }
     document.querySelectorAll('.cv-tool[data-tool]').forEach(b => {
       b.classList.toggle('active', b.dataset.tool === name);
     });
@@ -1313,7 +1369,8 @@ class CanvasApp {
     if (!trigger || !source) return;
     trigger.dataset.tool = name;
     trigger.title = source.title;
-    trigger.querySelector('i').className = source.querySelector('i').className;
+    // Copy the icon — works for both <i> (FontAwesome) and inline <svg> buttons
+    trigger.innerHTML = source.innerHTML;
   }
 
   _bindFlyout(flyoutId) {
@@ -1324,14 +1381,18 @@ class CanvasApp {
     const show = () => {
       clearTimeout(hideTimer);
       const r = flyout.getBoundingClientRect();
-      menu.style.top  = (r.bottom + 4) + 'px';
+      menu.style.top  = r.bottom + 'px';   // no gap — avoids mouseleave dead zone
       menu.style.left = '0px';
       menu.classList.add('open');
       requestAnimationFrame(() => {
         menu.style.left = (r.left + r.width / 2 - menu.offsetWidth / 2) + 'px';
       });
     };
-    const hide = () => { hideTimer = setTimeout(() => menu.classList.remove('open'), 120); };
+    const hide = (e) => {
+      // Skip if mouse is moving between the trigger wrapper and the menu
+      if (e && (flyout.contains(e.relatedTarget) || menu.contains(e.relatedTarget))) return;
+      hideTimer = setTimeout(() => menu.classList.remove('open'), 300);
+    };
     flyout.addEventListener('mouseenter', show);
     flyout.addEventListener('mouseleave', hide);
     menu.addEventListener('mouseenter', () => clearTimeout(hideTimer));
@@ -1402,6 +1463,12 @@ class CanvasApp {
 
   renderAll() {
     this.ctx.clearRect(0, 0, this.main.width, this.main.height);
+    if (this.bgVisible) {
+      this.ctx.save();
+      this.ctx.fillStyle = this.bgColor;
+      this.ctx.fillRect(0, 0, this.main.width, this.main.height);
+      this.ctx.restore();
+    }
     this.objects.forEach(obj => this._drawObject(this.ctx, obj));
   }
 
@@ -1491,8 +1558,9 @@ class CanvasApp {
       }
 
       case 'triangle':
+      case 'hexagon':
       case 'polygon': {
-        const n = (obj.sides != null ? Math.round(obj.sides) : 3);
+        const n = (obj.sides != null ? Math.round(obj.sides) : (type === 'hexagon' ? 6 : 3));
         const cx = x1 + w / 2, cy = y1 + h / 2;
         const rx = Math.abs(w) / 2 || 1;
         const ry = Math.abs(h) / 2 || 1;
@@ -1552,6 +1620,501 @@ class CanvasApp {
           y2 - headLen * Math.sin(angle + Math.PI / 6)
         );
         ctx.stroke();
+        break;
+      }
+
+      /* ── New extra shapes ─────────────────────────────── */
+
+      case 'pill': {
+        // Fully-rounded stadium / pill
+        const r = Math.min(Math.abs(w), Math.abs(h)) / 2;
+        ctx.roundRect(x1, y1, w, h, r);
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'diamond': {
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        ctx.moveTo(bx + bw/2, by);
+        ctx.lineTo(bx + bw,   by + bh/2);
+        ctx.lineTo(bx + bw/2, by + bh);
+        ctx.lineTo(bx,        by + bh/2);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'parallelogram': {
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        const sl = bw * 0.25;
+        ctx.moveTo(bx + sl,      by);
+        ctx.lineTo(bx + bw,      by);
+        ctx.lineTo(bx + bw - sl, by + bh);
+        ctx.lineTo(bx,           by + bh);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'trapezoid': {
+        // Wider bottom, narrower top
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        const ins = bw * 0.2;
+        ctx.moveTo(bx + ins,      by);
+        ctx.lineTo(bx + bw - ins, by);
+        ctx.lineTo(bx + bw,       by + bh);
+        ctx.lineTo(bx,            by + bh);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'trapdown': {
+        // Wider top, narrower bottom
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        const ins = bw * 0.2;
+        ctx.moveTo(bx,            by);
+        ctx.lineTo(bx + bw,       by);
+        ctx.lineTo(bx + bw - ins, by + bh);
+        ctx.lineTo(bx + ins,      by + bh);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'cross': {
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        const tx = bw / 3, ty = bh / 3;
+        ctx.moveTo(bx + tx,      by);
+        ctx.lineTo(bx + bw - tx, by);
+        ctx.lineTo(bx + bw - tx, by + ty);
+        ctx.lineTo(bx + bw,      by + ty);
+        ctx.lineTo(bx + bw,      by + bh - ty);
+        ctx.lineTo(bx + bw - tx, by + bh - ty);
+        ctx.lineTo(bx + bw - tx, by + bh);
+        ctx.lineTo(bx + tx,      by + bh);
+        ctx.lineTo(bx + tx,      by + bh - ty);
+        ctx.lineTo(bx,           by + bh - ty);
+        ctx.lineTo(bx,           by + ty);
+        ctx.lineTo(bx + tx,      by + ty);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'frame': {
+        // Pincushion / barrel — all 4 sides bow inward
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        const bow = Math.min(bw, bh) * 0.15;
+        const mx = bx + bw / 2, my = by + bh / 2;
+        ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(mx,        by + bow,      bx + bw, by);
+        ctx.quadraticCurveTo(bx+bw-bow, my,            bx + bw, by + bh);
+        ctx.quadraticCurveTo(mx,        by+bh-bow,     bx,      by + bh);
+        ctx.quadraticCurveTo(bx + bow,  my,            bx,      by);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      // case 'heart': {
+      //   const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||2, bh = Math.abs(h)||2;
+      //   const p = (nx, ny) => [bx + nx * bw, by + ny * bh];
+      //   ctx.moveTo(...p(0.5, 0.30));    // top notch
+      //   // Left hump
+      //   ctx.bezierCurveTo(...p(0.45, 0.02), ...p(0.0, 0.07), ...p(0.04, 0.38));
+      //   // Left lower → bottom tip
+      //   ctx.bezierCurveTo(...p(0.0, 0.65), ...p(0.28, 0.88), ...p(0.5, 1.0));
+      //   // Right lower ← bottom tip
+      //   ctx.bezierCurveTo(...p(0.72, 0.88), ...p(1.0, 0.65), ...p(0.96, 0.38));
+      //   // Right hump → notch
+      //   ctx.bezierCurveTo(...p(1.0, 0.07), ...p(0.55, 0.02), ...p(0.5, 0.30));
+      //   ctx.closePath();
+      //   if (obj.fill) ctx.fill(); else ctx.stroke();
+      //   break;
+      // }
+
+      case 'heart': {
+          const bx = Math.min(x1, x2),
+                by = Math.min(y1, y2),
+                bw = Math.abs(w) || 1,
+                bh = Math.abs(h) || 1;
+          const sx = bw / 64;
+          const sy = bh / 56;
+          ctx.moveTo(bx + 2.53725 * sx, by + 8.94154 * sy);
+          ctx.bezierCurveTo(
+            bx + (-2.65195) * sx, by + 17.4906 * sy,
+            bx + 1.00387 * sx,    by + 25.8117 * sy,
+            bx + 5.59813 * sx,    by + 30.2281 * sy
+          );        
+          ctx.lineTo(bx + 32.4604 * sx, by + 56 * sy);        
+          ctx.lineTo(bx + 58.7557 * sx, by + 30.3202 * sy);
+          ctx.bezierCurveTo(
+            bx + 63.0287 * sx, by + 25.5693 * sy,
+            bx + 64.6666 * sx, by + 20.5299 * sy,
+            bx + 63.7569 * sx, by + 14.9185 * sy
+          );
+          ctx.bezierCurveTo(
+            bx + 62.5004 * sx, by + 7.1561 * sy,
+            bx + 56.1037 * sx, by + 1.13372 * sy,
+            bx + 48.2017 * sx, by + 0.273726 * sy
+          );
+          ctx.bezierCurveTo(
+            bx + 43.3553 * sx, by + (-0.248088) * sy,
+            bx + 38.6736 * sx, by + 1.12342 * sy,
+            bx + 35.0197 * sx, by + 4.15976 * sy
+          );
+          ctx.bezierCurveTo(
+            bx + 34.0362 * sx, by + 4.97672 * sy,
+            bx + 33.1572 * sx, by + 5.89005 * sy,
+            bx + 32.3911 * sx, by + 6.88277 * sy
+          );
+          ctx.bezierCurveTo(
+            bx + 31.4821 * sx, by + 5.75248 * sy,
+            bx + 30.4163 * sx, by + 4.71854 * sy,
+            bx + 29.2108 * sx, by + 3.80219 * sy
+          );
+          ctx.bezierCurveTo(
+            bx + 25.009 * sx,  by + 0.608875 * sy,
+            bx + 19.6604 * sx, by + (-0.658994) * sy,
+            bx + 14.5228 * sx, by + 0.327059 * sy
+          );
+          ctx.bezierCurveTo(
+            bx + 9.65689 * sx, by + 1.26705 * sy,
+            bx + 5.28924 * sx, by + 4.40582 * sy,
+            bx + 2.53725 * sx, by + 8.94154 * sy
+          );
+          ctx.closePath();
+          if (obj.fill) ctx.fill(); else ctx.stroke();
+          break;
+        }  
+
+      // case 'cloud': {
+      //   const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||2, bh = Math.abs(h)||2;
+      //   const px = t => bx + t * bw, py = t => by + t * bh;
+      //   const floor = py(0.78);
+      //   ctx.moveTo(px(0.04), floor);
+      //   // Bumps left to right using quadratic bezier
+      //   ctx.quadraticCurveTo(px(0.0),  py(0.50), px(0.07), py(0.50));
+      //   ctx.quadraticCurveTo(px(0.04), py(0.20), px(0.23), py(0.22));
+      //   ctx.quadraticCurveTo(px(0.18), py(0.0),  px(0.42), py(0.05));
+      //   ctx.quadraticCurveTo(px(0.38), py(-0.08),px(0.62), py(0.05));
+      //   ctx.quadraticCurveTo(px(0.62), py(-0.02),px(0.78), py(0.15));
+      //   ctx.quadraticCurveTo(px(0.9),  py(0.05), px(0.96), py(0.28));
+      //   ctx.quadraticCurveTo(px(1.0),  py(0.28), px(1.0),  py(0.50));
+      //   ctx.quadraticCurveTo(px(1.0),  py(0.78), px(0.96), floor);
+      //   ctx.lineTo(px(0.04), floor);
+      //   ctx.closePath();
+      //   if (obj.fill) ctx.fill(); else ctx.stroke();
+      //   break;
+      // }
+
+      case 'cloud': {
+        const bx = Math.min(x1, x2),
+              by = Math.min(y1, y2),
+              bw = Math.abs(w) || 1,
+              bh = Math.abs(h) || 1;
+        const sx = bw / 64;
+        const sy = bh / 42;
+        ctx.moveTo(bx + 36.3378 * sx, by + 0 * sy);
+        ctx.bezierCurveTo(
+          bx + 37.0398 * sx, by + 0 * sy,
+          bx + 37.746  * sx, by + 0 * sy,
+          bx + 38.4466 * sx, by + 0 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 44.0323 * sx, by + 0.701488 * sy,
+          bx + 47.5231 * sx, by + 3.03656  * sy,
+          bx + 49.1131 * sx, by + 6.85746  * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 58.4254 * sx, by + 6.34791 * sy,
+          bx + 65.196  * sx, by + 13.5727 * sy,
+          bx + 61.0698 * sx, by + 20.6635 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 62.4419 * sx, by + 22.1535 * sy,
+          bx + 63.5866 * sx, by + 23.8202 * sy,
+          bx + 64 * sx,      by + 26.0572 * sy
+        );
+        ctx.lineTo(bx + 64 * sx, by + 27.978 * sy);
+        ctx.bezierCurveTo(
+          bx + 62.768  * sx, by + 33.6714 * sy,
+          bx + 57.4667 * sx, by + 37.5186 * sy,
+          bx + 48.7634 * sx, by + 36.4829 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 46.5241 * sx, by + 39.4062 * sy,
+          bx + 42.5395 * sx, by + 42.3337 * sy,
+          bx + 36.3391 * sx, by + 41.9691 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 33.1342 * sx, by + 41.7772 * sy,
+          bx + 30.9046 * sx, by + 40.6656 * sy,
+          bx + 28.9525 * sx, by + 39.3151 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 26.8964 * sx, by + 40.4377 * sy,
+          bx + 24.6696 * sx, by + 41.3187 * sy,
+          bx + 21.4522 * sx, by + 41.3284 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 14.0087 * sx, by + 41.345 * sy,
+          bx + 9.02929 * sx, by + 37.0201 * sy,
+          bx + 8.90858 * sx, by + 31.0878 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 4.12339 * sx, by + 29.7 * sy,
+          bx + 0.882395 * sx,by + 27.1095 * sy,
+          bx + 0 * sx,       by + 22.6768 * sy
+        );
+        ctx.lineTo(bx + 0 * sx, by + 20.756 * sy);
+        ctx.bezierCurveTo(
+          bx + 0.973964 * sx, by + 16.3635 * sy,
+          bx + 4.03876  * sx, by + 13.6044 * sy,
+          bx + 9.14167  * sx, by + 12.4348 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 8.83505 * sx, by + 5.02503 * sy,
+          bx + 19.0423 * sx, by + 0.394932 * sy,
+          bx + 27.4278 * sx, by + 3.65934 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 29.4243 * sx, by + 2.04509 * sy,
+          bx + 32.249  * sx, by + 0.284462 * sy,
+          bx + 36.3378 * sx, by + 0 * sy
+        );
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'speechbubble': {
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||2, bh = Math.abs(h)||2;
+        const r = Math.min(bw, bh) * 0.12;
+        const tailH = bh * 0.22;
+        const bdy = by + bh - tailH; // bottom of bubble body
+        // Body (rounded rect drawn as explicit path)
+        ctx.moveTo(bx + r, by);
+        ctx.lineTo(bx + bw - r, by);          ctx.arcTo(bx+bw, by,       bx+bw, by+r,           r);
+        ctx.lineTo(bx + bw, bdy - r);         ctx.arcTo(bx+bw, bdy,      bx+bw-r, bdy,          r);
+        // Tail right side → tip → left side
+        ctx.lineTo(bx + bw * 0.35, bdy);
+        ctx.lineTo(bx + bw * 0.12, by + bh);  // tail tip
+        ctx.lineTo(bx + bw * 0.10, bdy);
+        ctx.arcTo(bx, bdy,         bx, bdy-r,          r);
+        ctx.lineTo(bx, by + r);               ctx.arcTo(bx, by,          bx+r, by,              r);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      // case 'speechoval': {
+      //   const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||2, bh = Math.abs(h)||2;
+      //   const tailH = bh * 0.22;
+      //   const bodyH = bh - tailH;
+      //   const ecx = bx + bw/2, ecy = by + bodyH/2;
+      //   const erx = bw/2||1, ery = bodyH/2||1;
+      //   // Ellipse body
+      //   ctx.ellipse(ecx, ecy, erx, ery, 0, 0, Math.PI * 2);
+      //   // Tail as a separate filled triangle
+      //   ctx.moveTo(bx + bw * 0.30, by + bodyH * 0.85);
+      //   ctx.lineTo(bx + bw * 0.14, by + bh);
+      //   ctx.lineTo(bx + bw * 0.44, by + bodyH * 0.85);
+      //   ctx.closePath();
+      //   if (obj.fill) ctx.fill(); else ctx.stroke();
+      //   break;
+      // }
+
+      case 'speechoval': {
+        const bx = Math.min(x1, x2),
+              by = Math.min(y1, y2),
+              bw = Math.abs(w) || 1,
+              bh = Math.abs(h) || 1;
+        const sx = bw / 64;
+        const sy = bh / 56;
+        ctx.moveTo(bx + 41.7615 * sx, by + 0);
+        ctx.lineTo(bx + 22.2368 * sx, by + 0);
+        ctx.bezierCurveTo(
+          bx + 9.95482 * sx, by + 0,
+          bx + 0,            by + 9.72535 * sy,
+          bx + 0,            by + 21.7221 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 0,            by + 30.407 * sy,
+          bx + 5.21881 * sx, by + 37.8984 * sy,
+          bx + 12.7588 * sx, by + 41.3741 * sy
+        );
+        ctx.lineTo(bx + 12.7588 * sx, by + 56 * sy);
+        ctx.lineTo(bx + 27.8617 * sx, by + 43.4435 * sy);
+        ctx.lineTo(bx + 41.7615 * sx, by + 43.4435 * sy);
+        ctx.bezierCurveTo(
+          bx + 54.0443 * sx, by + 43.4435 * sy,
+          bx + 64 * sx,      by + 33.7181 * sy,
+          bx + 64 * sx,      by + 21.7213 * sy
+        );
+        ctx.bezierCurveTo(
+          bx + 64 * sx,      by + 9.72535 * sy,
+          bx + 54.0443 * sx, by + 0,
+          bx + 41.7615 * sx, by + 0
+        );
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'bookmark': {
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        ctx.moveTo(bx,           by);
+        ctx.lineTo(bx + bw,      by);
+        ctx.lineTo(bx + bw,      by + bh);
+        ctx.lineTo(bx + bw / 2,  by + bh * 0.75);
+        ctx.lineTo(bx,           by + bh);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'ribbon': {
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        const nh = bh * 0.18; // notch depth
+        ctx.moveTo(bx,            by);
+        ctx.lineTo(bx + bw,       by);
+        ctx.lineTo(bx + bw,       by + bh);
+        ctx.lineTo(bx + bw * 0.75, by + bh - nh);
+        ctx.lineTo(bx + bw * 0.5,  by + bh);
+        ctx.lineTo(bx + bw * 0.25, by + bh - nh);
+        ctx.lineTo(bx,             by + bh);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      // case 'star': {
+      //   // N-pointed star: outer vertices alternate with inner vertices
+      //   const ns  = Math.max(3, Math.round(obj.sides != null ? obj.sides : 5));
+      //   const bx  = Math.min(x1,x2), by = Math.min(y1,y2);
+      //   const scx = bx + Math.abs(w)/2, scy = by + Math.abs(h)/2;
+      //   const orx = Math.abs(w)/2 || 1, ory = Math.abs(h)/2 || 1;
+      //   // Inner radius ratio: tighter for few points (sparkle), standard for more points
+      //   const ratio = ns <= 4 ? 0.20 : ns <= 6 ? 0.38 : 0.40;
+      //   const irx = orx * ratio, iry = ory * ratio;
+      //   const sa  = -Math.PI / 2;
+      //   for (let i = 0; i < ns * 2; i++) {
+      //     const a  = sa + (i * Math.PI) / ns;
+      //     const rx = i % 2 === 0 ? orx : irx;
+      //     const ry = i % 2 === 0 ? ory : iry;
+      //     const px = scx + rx * Math.cos(a);
+      //     const py = scy + ry * Math.sin(a);
+      //     if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      //   }
+      //   ctx.closePath();
+      //   if (obj.fill) ctx.fill(); else ctx.stroke();
+      //   break;
+      // }
+
+      case 'starburst': {
+        const nb  = Math.max(4, Math.round(obj.sides != null ? obj.sides : 12));
+        const bx  = Math.min(x1, x2), by = Math.min(y1, y2);
+        const bw  = Math.abs(w) || 1,  bh = Math.abs(h) || 1;
+        const scx = bx + bw / 2,       scy = by + bh / 2;
+        const orx = bw / 2,            ory = bh / 2;
+        const ratio = 0.78;
+        const irx = orx * ratio,        iry = ory * ratio;
+        const sa  = -Math.PI / 2;
+        const cr  = obj.cornerRadius || 0;
+        const sv  = [];
+        for (let i = 0; i < nb * 2; i++) {
+          const a  = sa + (i * Math.PI) / nb;
+          const rx = i % 2 === 0 ? orx : irx;
+          const ry = i % 2 === 0 ? ory : iry;
+          sv.push({ x: scx + rx * Math.cos(a), y: scy + ry * Math.sin(a) });
+        }
+        if (cr > 0) {
+          const arcR = (cr / 100) * Math.min(orx, ory) * (1 - ratio) * 0.9;
+          const n2   = sv.length;
+          for (let i = 0; i < n2; i++) {
+            const prev = sv[(i - 1 + n2) % n2], cur = sv[i], next = sv[(i + 1) % n2];
+            const d1x = cur.x - prev.x, d1y = cur.y - prev.y, l1 = Math.hypot(d1x, d1y);
+            const d2x = next.x - cur.x,  d2y = next.y - cur.y, l2 = Math.hypot(d2x, d2y);
+            const t   = Math.min(arcR, l1 / 2, l2 / 2);
+            const p1  = { x: cur.x - t * d1x / l1, y: cur.y - t * d1y / l1 };
+            const p2  = { x: cur.x + t * d2x / l2, y: cur.y + t * d2y / l2 };
+            if (i === 0) ctx.moveTo(p1.x, p1.y); else ctx.lineTo(p1.x, p1.y);
+            ctx.quadraticCurveTo(cur.x, cur.y, p2.x, p2.y);
+          }
+        } else {
+          sv.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        }
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+
+      case 'star': {
+        const ns  = Math.max(3, Math.round(obj.sides != null ? obj.sides : 5));
+        const bx  = Math.min(x1, x2), by = Math.min(y1, y2);
+        const bw  = Math.abs(w) || 1,  bh = Math.abs(h) || 1;
+        const scx = bx + bw / 2,       scy = by + bh / 2;
+        const orx = bw / 2,            ory = bh / 2;
+        const ratio = ns <= 4 ? 0.20 : ns <= 6 ? 0.38 : 0.40;
+        const irx = orx * ratio,        iry = ory * ratio;
+        const sa  = -Math.PI / 2;
+        const cr  = obj.cornerRadius || 0;
+        const sv  = [];
+        for (let i = 0; i < ns * 2; i++) {
+          const a  = sa + (i * Math.PI) / ns;
+          const rx = i % 2 === 0 ? orx : irx;
+          const ry = i % 2 === 0 ? ory : iry;
+          sv.push({ x: scx + rx * Math.cos(a), y: scy + ry * Math.sin(a) });
+        }
+        if (cr > 0) {
+          const arcR = (cr / 100) * Math.min(orx, ory) * ratio * 0.9;
+          const n2   = sv.length;
+          for (let i = 0; i < n2; i++) {
+            const prev = sv[(i - 1 + n2) % n2], cur = sv[i], next = sv[(i + 1) % n2];
+            const d1x = cur.x - prev.x, d1y = cur.y - prev.y, l1 = Math.hypot(d1x, d1y);
+            const d2x = next.x - cur.x,  d2y = next.y - cur.y, l2 = Math.hypot(d2x, d2y);
+            const t   = Math.min(arcR, l1 / 2, l2 / 2);
+            const p1  = { x: cur.x - t * d1x / l1, y: cur.y - t * d1y / l1 };
+            const p2  = { x: cur.x + t * d2x / l2, y: cur.y + t * d2y / l2 };
+            if (i === 0) ctx.moveTo(p1.x, p1.y); else ctx.lineTo(p1.x, p1.y);
+            ctx.quadraticCurveTo(cur.x, cur.y, p2.x, p2.y);
+          }
+        } else {
+          sv.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        }
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'arch': {
+        // Rectangle with semicircular arch cut into the top
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        const archR = Math.min(bw / 2, bh * 0.65);
+        const archY = by + archR;
+        ctx.moveTo(bx,           by + bh);
+        ctx.lineTo(bx,           archY);
+        ctx.arc(bx + bw / 2, archY, archR, Math.PI, 0, false);
+        ctx.lineTo(bx + bw,    by + bh);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
+        break;
+      }
+
+      case 'stadium': {
+        // D-shape: flat top, semicircle at bottom
+        const bx = Math.min(x1,x2), by = Math.min(y1,y2), bw = Math.abs(w)||1, bh = Math.abs(h)||1;
+        const r = Math.min(bw / 2, bh * 0.65);
+        const arcY = by + bh - r;
+        ctx.moveTo(bx,         by);
+        ctx.lineTo(bx + bw,    by);
+        ctx.lineTo(bx + bw,    arcY);
+        ctx.arc(bx + bw / 2, arcY, r, 0, Math.PI, false);
+        ctx.closePath();
+        if (obj.fill) ctx.fill(); else ctx.stroke();
         break;
       }
     }
@@ -1687,7 +2250,14 @@ class CanvasApp {
       }
       return this._hitRectOutline(b, lx, ly, (obj.size || this.size) + pad);
     }
-    if (type === 'circle' || type === 'triangle' || type === 'polygon') {
+    if (type === 'circle' || type === 'triangle' || type === 'polygon' || type === 'hexagon' ||
+        type === 'pill' || type === 'diamond' || type === 'parallelogram' ||
+        type === 'trapezoid' || type === 'trapdown' || type === 'cross' ||
+        type === 'frame' || type === 'heart' || type === 'cloud' ||
+        type === 'speechbubble' || type === 'speechoval' ||
+        type === 'bookmark' || type === 'ribbon' ||
+        type === 'arch' || type === 'stadium' ||
+        type === 'star' || type === 'starburst') {
       // Always use bounding-box containment — polygon/triangle edges are inside the bbox,
       // so outline-only checking leaves most of the shape un-hittable.
       return lx >= b.x - pad && lx <= b.x + b.w + pad && ly >= b.y - pad && ly <= b.y + b.h + pad;
@@ -1948,10 +2518,10 @@ class CanvasApp {
       else obj.size = value;
     }
     if (prop === 'cornerRadius') {
-      if (['rect', 'polygon', 'triangle'].includes(type)) obj.cornerRadius = value;
+      if (['rect', 'polygon', 'triangle', 'hexagon', 'star', 'starburst'].includes(type)) obj.cornerRadius = value;
     }
     if (prop === 'sides') {
-      if (['polygon', 'triangle'].includes(type)) obj.sides = Math.round(value);
+      if (['polygon', 'triangle', 'hexagon', 'star', 'starburst'].includes(type)) obj.sides = Math.round(value);
     }
   }
 
@@ -1986,14 +2556,14 @@ class CanvasApp {
       document.getElementById('sizeVal').textContent = repSize;
     }
     const repType = rep.type || rep.tool;
-    if (repType === 'rect' || repType === 'polygon' || repType === 'triangle') {
+    if (repType === 'rect' || repType === 'polygon' || repType === 'triangle' || repType === 'hexagon') {
       const cr = rep.cornerRadius != null ? rep.cornerRadius : 0;
       this.cornerRadius = cr;
       document.getElementById('cornerRoundingRange').value = cr;
       document.getElementById('cornerRoundingVal').textContent = cr;
     }
-    if (repType === 'polygon' || repType === 'triangle') {
-      const s = rep.sides != null ? rep.sides : 3;
+    if (repType === 'polygon' || repType === 'triangle' || repType === 'hexagon') {
+      const s = rep.sides != null ? rep.sides : (repType === 'hexagon' ? 6 : 3);
       this.sides = s;
       document.getElementById('sidesRange').value = s;
       document.getElementById('sidesVal').textContent = s;

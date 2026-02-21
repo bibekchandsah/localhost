@@ -16,7 +16,7 @@
 
 /* ─── Base ───────────────────────────────────────────────── */
 body {
-  background: #ffffff;
+  /* background: #ffffff; */
   color: var(--txt);
   font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 12px;
@@ -36,13 +36,16 @@ body {
   display: flex;
   align-items: center;
   gap: 3px;
-  height: 46px;
+  /* height: 46px; */
   padding: 0 8px;
   background: var(--tb);
   border-bottom: 1px solid var(--tb-border);
   flex-shrink: 0;
   overflow-x: auto;
   scrollbar-width: none;
+      min-height: 46px;
+    max-height: 92px;
+    flex-wrap: wrap;
 }
 .cv-toolbar::-webkit-scrollbar { display: none; }
 
@@ -95,6 +98,18 @@ body {
   border-radius: var(--r);
   box-shadow: 0 6px 18px rgba(0,0,0,0.5);
   z-index: 200;
+}
+
+/* Grid layout when menu contains many shapes */
+.cv-flyout-menu.cv-shape-menu {
+  display: none;
+  flex-direction: row;
+  flex-wrap: wrap;
+  width: calc(30px * 4 + 2px * 3 + 8px);  /* 4 columns */
+}
+.cv-flyout-menu.cv-shape-menu.open {
+  display: flex;
+  justify-content: space-around;
 }
 
 .cv-flyout-menu.open {
@@ -298,8 +313,14 @@ body {
   flex: 1;
   position: relative;
   overflow: hidden;
-  /* background: #ffffff; */
   background: #282828;
+}
+.cv-canvas-area.bg-hidden {
+  /* checkerboard shows through transparent canvas */
+  background:
+    repeating-conic-gradient(#3a3a3a 0% 25%, #282828 0% 50%)
+    0 0 / 16px 16px;
+  background: none;
 }
 
 #mainCanvas,
