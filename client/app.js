@@ -24,6 +24,10 @@ class MediaBrowser {
     this.tabs = [{ id: 1, title: 'New Tab', rootDir: null, currentPath: '', folderHistory: [], files: [] }];
     this.activeTabId = 1;
     this.nextTabId = 2;
+    // URL viewer tabs
+    this.urlTabs = [];
+    this.activeUrlTabId = 0;
+    this.nextUrlTabId = 1;
 
     this.initializeUI();
     this.setupEventListeners();
@@ -86,7 +90,7 @@ class MediaBrowser {
       urlInputModal: document.getElementById('urlInputModal'),
       urlViewerModal: document.getElementById('urlViewerModal'),
       urlInput: document.getElementById('urlInput'),
-      urlViewerFrame: document.getElementById('urlViewerFrame'),
+      // urlViewerFrame — now created per-tab dynamically
       urlViewerAddress: document.getElementById('urlViewerAddress'),
 
       // States
@@ -1195,19 +1199,38 @@ class MediaBrowser {
   loadUrl() {
     const input = this.elements.urlInput.value.trim();
     if (!input) return;
-    const { url, isYoutube } = this.resolveUrl(input);
     this.closeUrlDialog();
-    this.elements.urlViewerAddress.value = url;
-    this.elements.urlViewerFrame.src = url;
-    this._setViewerIcon(isYoutube);
-    this.elements.urlViewerModal.classList.remove('hidden');
+    const isViewerOpen = !this.elements.urlViewerModal.classList.contains('hidden');
+    if (isViewerOpen) {
+      this.newUrlTab(input);
+    } else {
+      // First open — initialise tab list
+      const { url, isYoutube } = this.resolveUrl(input);
+      this.urlTabs = [];
+      this.nextUrlTabId = 1;
+      const id = this.nextUrlTabId++;
+      this.urlTabs = [{ id, title: this._urlTabTitleFor(url), url }];
+      this.activeUrlTabId = id;
+      this.elements.urlViewerAddress.value = url;
+      this._setViewerIcon(isYoutube);
+      this.elements.urlViewerModal.classList.remove('hidden');
+      this._createUrlFrame(id, url);
+      this.renderUrlTabBar();
+    }
   }
 
   navigateViewer(input) {
     const { url, isYoutube } = this.resolveUrl(input);
     this.elements.urlViewerAddress.value = url;
-    this.elements.urlViewerFrame.src = url;
+    const frame = document.getElementById(`url-frame-${this.activeUrlTabId}`);
+    if (frame) frame.src = url;
     this._setViewerIcon(isYoutube);
+    const tab = this.urlTabs.find(t => t.id === this.activeUrlTabId);
+    if (tab) {
+      tab.url = url;
+      tab.title = this._urlTabTitleFor(url);
+      this.renderUrlTabBar();
+    }
   }
 
   _setViewerIcon(isYoutube) {
@@ -1225,8 +1248,14 @@ class MediaBrowser {
   closeUrlViewer() {
     clearTimeout(this._urlDebounce);
     this.elements.urlViewerModal.classList.add('hidden');
-    this.elements.urlViewerFrame.src = 'about:blank';
     this.elements.urlViewerAddress.value = '';
+    this.urlTabs = [];
+    this.activeUrlTabId = 0;
+    this.nextUrlTabId = 1;
+    const bar = document.getElementById('urlViewerTabBar');
+    if (bar) bar.innerHTML = '';
+    const container = document.getElementById('urlViewerFrames');
+    if (container) container.innerHTML = '';
   }
 
   toggleSidebar() {    const sidebar = this.elements.sidebar;
@@ -1307,7 +1336,11 @@ class MediaBrowser {
       }
       if (e.key === 'w' || e.key === 'W') {
         e.preventDefault();
-        if (this.tabs.length > 1) this.closeTab(this.activeTabId);
+        if (!this.elements.urlViewerModal.classList.contains('hidden')) {
+          this.closeUrlTab(this.activeUrlTabId);
+        } else if (this.tabs.length > 1) {
+          this.closeTab(this.activeTabId);
+        }
         return;
       }
       if (e.key === 's' || e.key === 'S') {
@@ -1317,7 +1350,11 @@ class MediaBrowser {
       }
       if (e.key === 't' || e.key === 'T') {
         e.preventDefault();
-        this.toggleDarkMode();
+        if (!this.elements.urlViewerModal.classList.contains('hidden')) {
+          this.newUrlTab('');
+        } else {
+          this.toggleDarkMode();
+        }
         return;
       }
       if (e.key === '?' || e.key === '/') {
@@ -1531,6 +1568,144 @@ class MediaBrowser {
 
   closeShortcutModal() {
     this.elements.shortcutModal.classList.add('hidden');
+  }
+
+  // ============ URL Viewer Tabs ============
+
+  _createUrlFrame(tabId, url) {
+    const container = document.getElementById('urlViewerFrames');
+    if (!container) return null;
+    // Hide all existing frames (but keep their src — media keeps playing)
+    container.querySelectorAll('.url-viewer-frame').forEach(f => f.classList.remove('active'));
+    const iframe = document.createElement('iframe');
+    iframe.id = `url-frame-${tabId}`;
+    iframe.className = 'url-viewer-frame active';
+    iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+    iframe.setAttribute('allowfullscreen', '');
+    iframe.src = url || 'about:blank';
+    container.appendChild(iframe);
+    return iframe;
+  }
+
+  _showUrlFrame(tabId) {
+    const container = document.getElementById('urlViewerFrames');
+    if (!container) return;
+    container.querySelectorAll('.url-viewer-frame').forEach(f => {
+      f.classList.toggle('active', f.id === `url-frame-${tabId}`);
+    });
+  }
+
+  _removeUrlFrame(tabId) {
+    const frame = document.getElementById(`url-frame-${tabId}`);
+    if (frame) frame.remove();
+  }
+
+  _urlTabTitleFor(url) {
+    if (!url || url === 'about:blank') return 'New Tab';
+    try {
+      const u = new URL(url);
+      return u.hostname.replace(/^www\./, '') || 'New Tab';
+    } catch { return 'New Tab'; }
+  }
+
+  renderUrlTabBar() {
+    const bar = document.getElementById('urlViewerTabBar');
+    if (!bar) return;
+    bar.innerHTML = '';
+
+    // Scrollable tab area
+    const scrollArea = document.createElement('div');
+    scrollArea.className = 'url-tab-scroll-area';
+    // Convert vertical wheel to horizontal scroll
+    scrollArea.addEventListener('wheel', (e) => {
+      if (e.deltaY !== 0) {
+        e.preventDefault();
+        scrollArea.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
+
+    this.urlTabs.forEach(tab => {
+      const el = document.createElement('div');
+      el.className = 'tab-item' + (tab.id === this.activeUrlTabId ? ' active' : '');
+      const title = document.createElement('span');
+      title.className = 'tab-title';
+      title.textContent = tab.title;
+      title.title = tab.url;
+      el.appendChild(title);
+      const close = document.createElement('button');
+      close.className = 'tab-close';
+      close.title = 'Close tab (Alt+W)';
+      close.innerHTML = '&#x2715;';
+      close.addEventListener('click', (e) => { e.stopPropagation(); this.closeUrlTab(tab.id); });
+      el.appendChild(close);
+      el.addEventListener('click', (e) => {
+        if (!e.target.closest('.tab-close')) this.switchUrlTab(tab.id);
+      });
+      scrollArea.appendChild(el);
+    });
+    // + button inside scroll area, right after last tab
+    const addBtn = document.createElement('button');
+    addBtn.className = 'tab-add-btn';
+    addBtn.title = 'New tab (Alt+T)';
+    addBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+    addBtn.addEventListener('click', () => this.newUrlTab(''));
+    scrollArea.appendChild(addBtn);
+    bar.appendChild(scrollArea);
+
+    // Scroll active tab into view
+    const active = scrollArea.querySelector('.tab-item.active');
+    if (active) setTimeout(() => active.scrollIntoView({ block: 'nearest', inline: 'nearest' }), 0);
+  }
+
+  newUrlTab(urlInput) {
+    const cur = this.urlTabs.find(t => t.id === this.activeUrlTabId);
+    if (cur) cur.url = this.elements.urlViewerAddress.value;
+    const { url, isYoutube } = urlInput ? this.resolveUrl(urlInput) : { url: '', isYoutube: false };
+    const id = this.nextUrlTabId++;
+    const tab = { id, title: this._urlTabTitleFor(url || ''), url: url || '' };
+    this.urlTabs.push(tab);
+    this.activeUrlTabId = id;
+    this.elements.urlViewerAddress.value = url || '';
+    this._setViewerIcon(isYoutube);
+    this._createUrlFrame(id, url || 'about:blank');
+    this.renderUrlTabBar();
+    if (!url) setTimeout(() => this.elements.urlViewerAddress.focus(), 50);
+  }
+
+  closeUrlTab(id) {
+    if (this.urlTabs.length <= 1) {
+      this.closeUrlViewer();
+      return;
+    }
+    const idx = this.urlTabs.findIndex(t => t.id === id);
+    if (idx < 0) return;
+    const isActive = id === this.activeUrlTabId;
+    this.urlTabs.splice(idx, 1);
+    this._removeUrlFrame(id);
+    if (isActive) {
+      const newIdx = Math.min(idx, this.urlTabs.length - 1);
+      const next = this.urlTabs[newIdx];
+      this.activeUrlTabId = next.id;
+      this._showUrlFrame(next.id);
+      this.elements.urlViewerAddress.value = next.url || '';
+      const { isYoutube } = next.url ? this.resolveUrl(next.url) : { isYoutube: false };
+      this._setViewerIcon(isYoutube);
+    }
+    this.renderUrlTabBar();
+  }
+
+  switchUrlTab(id) {
+    if (id === this.activeUrlTabId) return;
+    const cur = this.urlTabs.find(t => t.id === this.activeUrlTabId);
+    if (cur) cur.url = this.elements.urlViewerAddress.value;
+    const tab = this.urlTabs.find(t => t.id === id);
+    if (!tab) return;
+    this.activeUrlTabId = id;
+    this._showUrlFrame(id);
+    this.elements.urlViewerAddress.value = tab.url || '';
+    const { isYoutube } = tab.url ? this.resolveUrl(tab.url) : { isYoutube: false };
+    this._setViewerIcon(isYoutube);
+    this.renderUrlTabBar();
   }
 
   // ============ Tabs ============

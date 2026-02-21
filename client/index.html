@@ -211,6 +211,8 @@
         <!-- URL Iframe Viewer Modal -->
         <div id="urlViewerModal" class="modal hidden">
             <div class="modal-content url-viewer-content">
+                <!-- In-app tab bar -->
+                <div id="urlViewerTabBar" class="url-viewer-tab-bar"></div>
                 <div class="url-viewer-header">
                     <i id="urlViewerIcon" class="fa-solid fa-globe" style="color:var(--accent);flex-shrink:0"></i>
                     <input id="urlViewerAddress" class="url-viewer-address" type="url"
@@ -218,9 +220,7 @@
                     <button id="urlViewerNewTab" class="btn btn-small btn-secondary" title="Open in new tab"><i class="fa-solid fa-arrow-up-right-from-square"></i></button>
                     <button id="closeUrlViewerBtn" class="btn-close">&#x2715;</button>
                 </div>
-                <iframe id="urlViewerFrame" class="url-viewer-frame"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        allowfullscreen></iframe>
+                <div id="urlViewerFrames" class="url-viewer-frames"></div>
             </div>
         </div>
 
