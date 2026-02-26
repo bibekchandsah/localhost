@@ -3,8 +3,27 @@ const cors = require('cors');
 const path = require('path');
 const fileController = require('./fileController');
 
+// Keep the console window open when running as a packaged .exe so the user
+// can read any error message before the window closes.
+function pauseAndExit(code = 1) {
+  process.stdout.write('\nPress ENTER to close this window...');
+  process.stdin.resume();
+  try { process.stdin.setRawMode(true); } catch (_) {}
+  process.stdin.once('data', () => process.exit(code));
+}
+
+process.on('uncaughtException', (err) => {
+  console.error('\n❌ Fatal error:', err.message);
+  console.error(err.stack);
+  pauseAndExit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('\n❌ Unhandled rejection:', reason);
+  pauseAndExit(1);
+});
+
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // Try to load FFmpeg for video conversion
 let ffmpeg = null;
@@ -18,7 +37,11 @@ try {
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../client')));
+
+// When running as a pkg .exe, __dirname is inside the snapshot virtual filesystem.
+// express.static works with pkg's patched fs, so the path is correct either way.
+const clientDir = path.join(__dirname, '..', 'client');
+app.use(express.static(clientDir));
 
 // API Routes
 
@@ -356,10 +379,47 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`\n🚀 Local Media Browser Server`);
-  console.log(`📍 Running on http://localhost:${PORT}`);
-  console.log(`\n📝 Navigate to http://localhost:${PORT} in your browser`);
-  console.log(`\n⚠️  No root directory set. Use the UI to select a folder.\n`);
-});
+// Start server — try 3000, then 8876, then let the OS pick a free port (0)
+function startServer(portsToTry) {
+  const port = portsToTry[0];
+  const rest  = portsToTry.slice(1);
+
+  const server = app.listen(port, () => {
+    const actualPort = server.address().port;
+    console.log(`\n🚀 Local Media Browser Server`);
+    console.log(`📍 Running on http://localhost:${actualPort}`);
+    console.log(`\n📝 Navigate to http://localhost:${actualPort} in your browser`);
+    console.log(`\n⚠️  No root directory set. Use the UI to select a folder.`);
+    console.log('(Close this window to stop the server.)\n');
+
+// Automatically open the default browser to the app URL on startup.
+    const { exec } = require('child_process');
+    const url = `http://localhost:${actualPort}`;
+    if (process.platform === 'win32') {
+      exec(`start "" "${url}"`);
+    } else if (process.platform === 'darwin') {
+      exec(`open "${url}"`);
+    } else {
+      exec(`xdg-open "${url}"`);
+    }
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      if (rest.length > 0) {
+        console.log(`⚠ Port ${port} in use, trying ${rest[0] || 'random'}...`);
+        startServer(rest);
+      } else {
+        console.error(`\n❌ Could not find a free port.`);
+        pauseAndExit(1);
+      }
+    } else {
+      console.error('\n❌ Server error:', err.message);
+      pauseAndExit(1);
+    }
+  });
+}
+
+const PORTS = process.env.PORT
+  ? [parseInt(process.env.PORT)]
+  : [3000, 8876, 0]; // 0 = OS assigns a random free port
+
+startServer(PORTS);
