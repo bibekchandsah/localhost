@@ -537,7 +537,7 @@ class CanvasApp {
         if (Math.hypot(x - rh.x, y - rh.y) <= this.ROT_HANDLE_R + 4) {
           this.isGroupRotating   = true;
           this.isDrawing         = true;
-          this.groupRotateCenter = { x: gb.cx, y: gb.cy };
+          this.groupRotateCenter = { cx: gb.cx, cy: gb.cy };
           this.groupRotateBase0  = Math.atan2(y - gb.cy, x - gb.cx);
           this.groupRotateBases  = new Map();
           for (const id of this.selectedIds) {
@@ -648,7 +648,12 @@ class CanvasApp {
     if (this.isRotating) {
       const obj = this._getObjectById(this.rotateObjId);
       if (!obj) return;
-      obj.rotation = Math.atan2(y - this.rotateCenter.y, x - this.rotateCenter.x) + Math.PI / 2;
+      let angle = Math.atan2(y - this.rotateCenter.y, x - this.rotateCenter.x) + Math.PI / 2;
+      if (this.shiftDown) {
+        const snap = Math.PI / 4; // 45°
+        angle = Math.round(angle / snap) * snap;
+      }
+      obj.rotation = angle;
       this.renderAll();
       this._drawSelectionOverlay();
       this._drawRotationAngleLabel();
@@ -1296,7 +1301,16 @@ class CanvasApp {
   _applyGroupRotate(x, y) {
     const { cx, cy } = this.groupRotateCenter;
     const curAng = Math.atan2(y - cy, x - cx);
-    const delta  = curAng - this.groupRotateBase0;
+    let delta = curAng - this.groupRotateBase0;
+    if (this.shiftDown) {
+      // Snap so the first object's resulting rotation is the nearest 45°
+      const snap = Math.PI / 4;
+      const firstInfo = [...this.groupRotateBases.values()][0];
+      if (firstInfo) {
+        const rawResult = (firstInfo.obj.rotation || 0) + delta;
+        delta = Math.round(rawResult / snap) * snap - (firstInfo.obj.rotation || 0);
+      }
+    }
     for (const [id, info] of this.groupRotateBases) {
       const obj = this._getObjectById(id);
       if (!obj) continue;
