@@ -119,11 +119,24 @@
 
       <div class="cv-div"></div>
 
-      <!-- Image tools (visible only when an image object is selected) -->
+      <!-- Image / object tools -->
       <div class="cv-group" id="imageToolsGroup">
         <button class="cv-tool" id="removeBgBtn" title="Remove Background" disabled>
           <i class="fa-solid fa-wand-magic-sparkles"></i>
         </button>
+        <button class="cv-tool" id="cropBtn" title="Crop Image" disabled>
+          <i class="fa-solid fa-crop-simple"></i>
+        </button>
+        <!-- Flip flyout -->
+        <div class="cv-flyout" id="flipFlyout">
+          <button class="cv-tool" id="flipTrigger" title="Flip" disabled>
+            <i class="fa-solid fa-left-right"></i>
+          </button>
+          <div class="cv-flyout-menu cv-flip-menu">
+            <button class="cv-tool cv-layer-item" id="flipHBtn"><i class="fa-solid fa-arrows-left-right"></i><span class="cv-layer-name">Flip horizontal</span></button>
+            <button class="cv-tool cv-layer-item" id="flipVBtn"><i class="fa-solid fa-arrows-up-down"></i><span class="cv-layer-name">Flip vertical</span></button>
+          </div>
+        </div>
       </div>
 
       <div class="cv-div"></div>
@@ -236,6 +249,16 @@
       </button>
     </div>
 
+  </div>
+
+  <!-- ── Crop confirm bar ──────────────────────────────── -->
+  <div id="cropBar" class="cv-crop-bar" style="display:none">
+    <i class="fa-solid fa-crop-simple"></i>
+    <span id="cropHint">Drag to select crop area</span>
+    <div class="cv-crop-bar-actions">
+      <button id="cropCancelBtn" class="cv-crop-btn cv-crop-cancel">Cancel</button>
+      <button id="cropApplyBtn"  class="cv-crop-btn cv-crop-apply">Apply Crop</button>
+    </div>
   </div>
 
   <!-- ── Page-deleted undo toast ───────────────────────── -->

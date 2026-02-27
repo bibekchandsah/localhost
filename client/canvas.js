@@ -74,6 +74,15 @@ class CanvasApp {
     this.marqueeStart = null; // {x,y}
     this.marqueeEnd   = null; // {x,y}
 
+    // Crop mode state
+    this.cropMode      = false;
+    this.cropObjId     = null;
+    this.cropRect      = null;  // { x, y, w, h } in canvas coords
+    this.cropHandle    = -1;    // 0-7 = resize handles, 8 = move, 'draw' = rubber-band, -1 = none
+    this.cropDragStart = null;  // { x, y, rect: clone } on mousedown
+    this.cropBounds    = null;  // max allowed rect (original image bounds)
+    this.cropOrigImg   = null;  // HTMLImageElement of original pre-crop image
+
     // Canvas elements
     this.main    = document.getElementById('mainCanvas');
     this.ctx     = this.main.getContext('2d');
@@ -318,6 +327,16 @@ class CanvasApp {
     // Remove background (image only)
     document.getElementById('removeBgBtn').addEventListener('click', () => this._removeBg());
 
+    // Crop (image only)
+    document.getElementById('cropBtn').addEventListener('click', () => this._enterCropMode());
+    document.getElementById('cropApplyBtn').addEventListener('click',  () => this._applyCrop());
+    document.getElementById('cropCancelBtn').addEventListener('click', () => this._exitCropMode());
+
+    // Flip (any object)
+    document.getElementById('flipHBtn').addEventListener('click', () => this._flipSelected('h'));
+    document.getElementById('flipVBtn').addEventListener('click', () => this._flipSelected('v'));
+    this._bindFlyout('flipFlyout');
+
     // Layer order
     document.getElementById('bringFrontBtn').addEventListener('click',   () => this._bringToFront());
     document.getElementById('bringForwardBtn').addEventListener('click', () => this._bringForward());
@@ -440,6 +459,8 @@ class CanvasApp {
   onDown(e) {
     const { x, y } = this.pos(e);
 
+    if (this.cropMode) { this._handleCropDown(x, y); return; }
+
     if (this.tool === 'select') { this._handleSelectDown(x, y, e.shiftKey || false); return; }
     if (this.tool === 'text') {
       this.commitText();
@@ -459,6 +480,10 @@ class CanvasApp {
         size: this.size,
         opacity: this.opacity
       };
+      // Snapshot object list so eraser can preview live without altering history
+      if (this.tool === 'eraser') {
+        this._eraserOrigObjects = this.objects.slice();
+      }
     } else {
       this.currentShape = {
         tool: this.tool,
@@ -479,6 +504,8 @@ class CanvasApp {
   onMove(e) {
     this.shiftDown = e.shiftKey;
     const { x, y } = this.pos(e);
+
+    if (this.cropMode) { this._handleCropMove(x, y, e.shiftKey); return; }
 
     if (this.tool === 'select') {
       if (!this.isDrawing && !this.isMarquee) {
@@ -512,6 +539,8 @@ class CanvasApp {
   onUp(e) {
     this.shiftDown = e.shiftKey;
     const { x, y } = this.pos(e);
+
+    if (this.cropMode) { this._handleCropUp(); return; }
 
     if (this.tool === 'select') { this._handleSelectUp(x, y); return; }
 
@@ -789,6 +818,7 @@ class CanvasApp {
   /* ── Selection overlay with handles ───────────────────── */
 
   _drawSelectionOverlay() {
+    if (this.cropMode) { this._drawCropOverlay(); return; }
     this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
     if (this._alignGuides && this._alignGuides.length) this._paintAlignmentGuides();
     if (this.selectedIds.size === 0) {
@@ -1387,7 +1417,10 @@ class CanvasApp {
     if (!this.currentStroke) return;
     this.currentStroke.points.push({ x, y });
     if (this.tool === 'eraser') {
-      this._renderWithOverlay();
+      // Restore from snapshot then apply erase up to current point — true real-time preview
+      if (this._eraserOrigObjects) this.objects = this._eraserOrigObjects.slice();
+      this._eraseByStroke(this.currentStroke);
+      this.renderAll();
       return;
     }
     this.renderAll();
@@ -1539,6 +1572,11 @@ class CanvasApp {
   /* ── Keyboard shortcuts ────────────────────────────────── */
 
   onKey(e) {
+    // Crop mode intercepts Escape and Enter
+    if (this.cropMode) {
+      if (e.key === 'Escape') { e.preventDefault(); this._exitCropMode(); return; }
+      if (e.key === 'Enter')  { e.preventDefault(); this._applyCrop();    return; }
+    }
     // Ctrl/Meta combos
     if (e.ctrlKey || e.metaKey) {
       if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
@@ -1685,6 +1723,9 @@ class CanvasApp {
     this.currentStroke.points.push({ x, y });
 
     if (this.currentStroke.tool === 'eraser') {
+      // Restore clean snapshot, apply full stroke including the final point
+      if (this._eraserOrigObjects) this.objects = this._eraserOrigObjects.slice();
+      this._eraserOrigObjects = null;
       this._eraseByStroke(this.currentStroke);
       this.currentStroke = null;
       this.renderAll();
@@ -1802,13 +1843,14 @@ class CanvasApp {
     const x2 = obj.x2, y2 = obj.y2;
     const w = x2 - x1, h = y2 - y1;
 
-    // Apply rotation around object center
+    // Apply rotation + flip around object center
     const rotation = obj.rotation || 0;
-    if (rotation) {
-      const cx = x1 + w / 2, cy = y1 + h / 2;
-      ctx.translate(cx, cy);
-      ctx.rotate(rotation);
-      ctx.translate(-cx, -cy);
+    const cx0 = x1 + w / 2, cy0 = y1 + h / 2;
+    if (rotation || obj.flipH || obj.flipV) {
+      ctx.translate(cx0, cy0);
+      if (rotation) ctx.rotate(rotation);
+      if (obj.flipH || obj.flipV) ctx.scale(obj.flipH ? -1 : 1, obj.flipV ? -1 : 1);
+      ctx.translate(-cx0, -cy0);
     }
 
     ctx.beginPath();
@@ -2455,12 +2497,13 @@ class CanvasApp {
     ctx.shadowBlur  = 0;
 
     const rotation = obj.rotation || 0;
-    if (rotation) {
+    if (rotation || obj.flipH || obj.flipV) {
       const b = this._getAxisAlignedBoundsFromObj(obj);
       if (b) {
         const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
         ctx.translate(cx, cy);
-        ctx.rotate(rotation);
+        if (rotation) ctx.rotate(rotation);
+        if (obj.flipH || obj.flipV) ctx.scale(obj.flipH ? -1 : 1, obj.flipV ? -1 : 1);
         ctx.translate(-cx, -cy);
       }
     }
@@ -2946,12 +2989,21 @@ class CanvasApp {
       lockBtn.title = 'Lock / Unlock  Ctrl+L';
       lockBtn.querySelector('i').className = 'fa-solid fa-lock';
     }
-    // Remove Background button — only enabled for a single, unlocked image
+    // Remove Background / Crop — only for a single unlocked image
+    const sole = this.selectedIds.size === 1 ? this._getObjectById([...this.selectedIds][0]) : null;
+    const isUnlockedImg = !!(sole && sole.type === 'image' && !sole.locked);
     const removeBgBtn = document.getElementById('removeBgBtn');
-    if (removeBgBtn) {
-      const sole = this.selectedIds.size === 1 ? this._getObjectById([...this.selectedIds][0]) : null;
-      removeBgBtn.disabled = !(sole && sole.type === 'image' && !sole.locked);
-    }
+    if (removeBgBtn) removeBgBtn.disabled = !isUnlockedImg;
+    const cropBtn = document.getElementById('cropBtn');
+    if (cropBtn) cropBtn.disabled = !isUnlockedImg;
+    // Flip — enabled for any single unlocked object
+    const flipTrigger = document.getElementById('flipTrigger');
+    const isUnlockedSole = !!(sole && !sole.locked);
+    if (flipTrigger) flipTrigger.disabled = !isUnlockedSole;
+    const flipHBtn = document.getElementById('flipHBtn');
+    const flipVBtn = document.getElementById('flipVBtn');
+    if (flipHBtn) flipHBtn.disabled = !isUnlockedSole;
+    if (flipVBtn) flipVBtn.disabled = !isUnlockedSole;
   }
 
   rgba(hex, a) {
@@ -3197,10 +3249,11 @@ class CanvasApp {
     ctx.save();
     ctx.globalAlpha = obj.opacity != null ? obj.opacity : 1;
     const rotation = obj.rotation || 0;
-    if (rotation) {
-      const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
+    const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
+    if (rotation || obj.flipH || obj.flipV) {
       ctx.translate(cx, cy);
-      ctx.rotate(rotation);
+      if (rotation) ctx.rotate(rotation);
+      if (obj.flipH || obj.flipV) ctx.scale(obj.flipH ? -1 : 1, obj.flipV ? -1 : 1);
       ctx.translate(-cx, -cy);
     }
     const cr = obj.cornerRadius || 0;
@@ -3212,6 +3265,407 @@ class CanvasApp {
     }
     ctx.drawImage(img, obj.x, obj.y, obj.w, obj.h);
     ctx.restore();
+  }
+
+  /* ── Flip ───────────────────────────────────────────────── */
+
+  _flipSelected(dir) {
+    if (this.selectedIds.size === 0) return;
+    const anyUnlocked = [...this.selectedIds].some(id => { const o = this._getObjectById(id); return o && !o.locked; });
+    if (!anyUnlocked) return;
+    for (const id of this.selectedIds) {
+      const obj = this._getObjectById(id);
+      if (!obj || obj.locked) continue;
+      if (dir === 'h') obj.flipH = !obj.flipH;
+      else             obj.flipV = !obj.flipV;
+    }
+    this.renderAll();
+    this._drawSelectionOverlay();
+    this.saveSnap();
+  }
+
+  /* ── Crop ───────────────────────────────────────────────── */
+
+  _enterCropMode() {
+    if (this.selectedIds.size !== 1) return;
+    const [id] = this.selectedIds;
+    const obj = this._getObjectById(id);
+    if (!obj || obj.type !== 'image') return;
+    this.cropMode    = true;
+    this.cropObjId   = id;
+    this.cropOrigImg = null;
+
+    if (obj._origSrc) {
+      // Re-crop: boundary is the original full image, start rect = current crop area
+      this.cropBounds = { x: obj._origX, y: obj._origY, w: obj._origW, h: obj._origH };
+      this.cropRect   = { x: obj.x, y: obj.y, w: obj.w, h: obj.h };
+      const origImg   = new Image();
+      origImg.onload  = () => { this.cropOrigImg = origImg; this._drawCropOverlay(); };
+      origImg.src     = obj._origSrc;
+    } else {
+      // First crop: boundary = current image, no pre-filled rect
+      this.cropBounds = { x: obj.x, y: obj.y, w: obj.w, h: obj.h };
+      this.cropRect   = null;
+    }
+
+    document.getElementById('cropBar').style.display = 'flex';
+    this.preview.style.cursor = 'crosshair';
+    this._drawCropOverlay();
+  }
+
+  _exitCropMode() {
+    this.cropMode      = false;
+    this.cropObjId     = null;
+    this.cropRect      = null;
+    this.cropDragStart = null;
+    this.cropHandle    = -1;
+    this.cropBounds    = null;
+    this.cropOrigImg   = null;
+    document.getElementById('cropBar').style.display = 'none';
+    this.preview.style.cursor = '';
+    this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
+    if (this.selectedIds.size > 0) this._drawAllSelectionHandles();
+    this._updateGroupUI();
+  }
+
+  _applyCrop() {
+    if (!this.cropMode || !this.cropObjId || !this.cropRect) return;
+    const obj = this._getObjectById(this.cropObjId);
+    if (!obj) { this._exitCropMode(); return; }
+
+    const cr = this.cropRect;
+    const cw = Math.round(cr.w), ch = Math.round(cr.h);
+    if (cw < 4 || ch < 4) { this._exitCropMode(); return; }
+
+    // Determine which image to crop from: original (re-crop) or current
+    const isRecrop = !!obj._origSrc;
+    const img = isRecrop ? this.cropOrigImg : this._imgCache.get(obj.id);
+    if (!img || !img.complete) { this._exitCropMode(); return; }
+
+    // On first crop: snapshot original metadata BEFORE modifying the object
+    if (!isRecrop) {
+      obj._origSrc = obj.src;
+      obj._origX   = obj.x;
+      obj._origY   = obj.y;
+      obj._origW   = obj.w;
+      obj._origH   = obj.h;
+    }
+
+    // Scale crop rect from canvas coords to natural image resolution
+    const refX = obj._origX, refY = obj._origY, refW = obj._origW, refH = obj._origH;
+    const scaleX = img.naturalWidth  / refW;
+    const scaleY = img.naturalHeight / refH;
+    const srcX = Math.round((cr.x - refX) * scaleX);
+    const srcY = Math.round((cr.y - refY) * scaleY);
+    const srcW = Math.round(cr.w * scaleX);
+    const srcH = Math.round(cr.h * scaleY);
+
+    const oc   = document.createElement('canvas');
+    oc.width   = Math.max(srcW, 1);
+    oc.height  = Math.max(srcH, 1);
+    const octx = oc.getContext('2d');
+    octx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
+    const newSrc = oc.toDataURL('image/png');
+
+    // Update object position/size (keep _orig* intact for future re-crops)
+    obj.x   = cr.x; obj.y = cr.y;
+    obj.w   = cw;   obj.h = ch;
+    obj.src = newSrc;
+
+    const newImg = new Image();
+    newImg.onload = () => {
+      this._imgCache.set(obj.id, newImg);
+      this.renderAll();
+      this._drawSelectionOverlay();
+    };
+    newImg.src = newSrc;
+
+    this._exitCropMode();
+    this.saveSnap();
+  }
+
+  _cropHandlePositions() {
+    const { x, y, w, h } = this.cropRect;
+    const mx = x + w / 2, my = y + h / 2;
+    return [
+      { hx: x,      hy: y      }, // 0 TL
+      { hx: mx,     hy: y      }, // 1 TC
+      { hx: x + w,  hy: y      }, // 2 TR
+      { hx: x,      hy: my     }, // 3 ML
+      { hx: x + w,  hy: my     }, // 4 MR
+      { hx: x,      hy: y + h  }, // 5 BL
+      { hx: mx,     hy: y + h  }, // 6 BC
+      { hx: x + w,  hy: y + h  }, // 7 BR
+    ];
+  }
+
+  _cropHitTest(px, py) {
+    if (!this.cropRect) return -1;
+    const SNAP = 10;
+    const handles = this._cropHandlePositions();
+    for (let i = 0; i < handles.length; i++) {
+      if (Math.abs(px - handles[i].hx) <= SNAP && Math.abs(py - handles[i].hy) <= SNAP) return i;
+    }
+    const { x, y, w, h } = this.cropRect;
+    if (px >= x && px <= x + w && py >= y && py <= y + h) return 8; // inside = move
+    return -1;
+  }
+
+  _handleCropDown(px, py) {
+    if (!this.cropRect) {
+      // No rect yet — start drawing one
+      this.cropHandle    = 'draw';
+      this.cropDragStart = { x: px, y: py, rect: null };
+      return;
+    }
+    const hit = this._cropHitTest(px, py);
+    if (hit === -1) {
+      // Clicked outside existing rect — discard it and start fresh
+      this.cropRect      = null;
+      this.cropHandle    = 'draw';
+      this.cropDragStart = { x: px, y: py, rect: null };
+      this._drawCropOverlay();
+      return;
+    }
+    this.cropHandle    = hit;
+    this.cropDragStart = { x: px, y: py, rect: { ...this.cropRect } };
+  }
+
+  _handleCropMove(px, py, shiftKey) {
+    if (!this.cropDragStart) {
+      // Hover — update cursor
+      if (!this.cropRect) { this.preview.style.cursor = 'crosshair'; return; }
+      const hit = this._cropHitTest(px, py);
+      const cursors = ['nw-resize','n-resize','ne-resize','w-resize','e-resize','sw-resize','s-resize','se-resize','move'];
+      this.preview.style.cursor = hit >= 0 ? cursors[hit] : 'crosshair';
+      return;
+    }
+
+    if (this.cropHandle === 'draw') {
+      // Rubber-band: draw a new crop rect from scratch
+      const cb = this.cropBounds;
+      if (!cb) return;
+      const minX = cb.x, minY = cb.y, maxX = cb.x + cb.w, maxY = cb.y + cb.h;
+      let rawW = px - this.cropDragStart.x;
+      let rawH = py - this.cropDragStart.y;
+      if (shiftKey) {
+        const side = Math.min(Math.abs(rawW), Math.abs(rawH));
+        rawW = side * (rawW >= 0 ? 1 : -1);
+        rawH = side * (rawH >= 0 ? 1 : -1);
+      }
+      const sx = this.cropDragStart.x;
+      const sy = this.cropDragStart.y;
+      let x1 = Math.max(rawW >= 0 ? sx : sx + rawW, minX);
+      let y1 = Math.max(rawH >= 0 ? sy : sy + rawH, minY);
+      let x2 = Math.min(rawW >= 0 ? sx + rawW : sx, maxX);
+      let y2 = Math.min(rawH >= 0 ? sy + rawH : sy, maxY);
+      this.cropRect = { x: x1, y: y1, w: Math.max(x2 - x1, 0), h: Math.max(y2 - y1, 0) };
+      this._drawCropOverlay();
+      return;
+    }
+
+    const dx = px - this.cropDragStart.x;
+    const dy = py - this.cropDragStart.y;
+    const b  = this.cropDragStart.rect;
+    const obj = this._getObjectById(this.cropObjId);
+    if (!obj) return;
+    const minX = obj.x, minY = obj.y, maxX = obj.x + obj.w, maxY = obj.y + obj.h;
+    const MIN_SIZE = 10;
+    let { x: nx, y: ny, w: nw, h: nh } = b;
+
+    const cb = this.cropBounds || { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    if (this.cropHandle === 8) {
+      // Move crop rect
+      nx = Math.min(Math.max(b.x + dx, cb.x), cb.x + cb.w - b.w);
+      ny = Math.min(Math.max(b.y + dy, cb.y), cb.y + cb.h - b.h);
+    } else {
+      let x1 = b.x, y1 = b.y, x2 = b.x + b.w, y2 = b.y + b.h;
+      const hi = this.cropHandle;
+      if (hi === 0 || hi === 3 || hi === 5) x1 = Math.min(b.x + dx, x2 - MIN_SIZE);
+      if (hi === 2 || hi === 4 || hi === 7) x2 = Math.max(b.x + b.w + dx, x1 + MIN_SIZE);
+      if (hi === 0 || hi === 1 || hi === 2) y1 = Math.min(b.y + dy, y2 - MIN_SIZE);
+      if (hi === 5 || hi === 6 || hi === 7) y2 = Math.max(b.y + b.h + dy, y1 + MIN_SIZE);
+
+      // Shift = lock aspect ratio (corner handles only)
+      const isCorner = (hi === 0 || hi === 2 || hi === 5 || hi === 7);
+      if (shiftKey && isCorner && b.w > 0 && b.h > 0) {
+        const ar = b.w / b.h;
+        let rw = x2 - x1, rh = y2 - y1;
+        // Drive by whichever axis moved proportionally more
+        if (Math.abs(dx) / b.w >= Math.abs(dy) / b.h) {
+          rh = rw / ar;
+        } else {
+          rw = rh * ar;
+        }
+        // Re-anchor the moving corner while keeping the fixed corner still
+        if (hi === 0) { x1 = x2 - rw; y1 = y2 - rh; }
+        if (hi === 2) { x2 = x1 + rw; y1 = y2 - rh; }
+        if (hi === 5) { x1 = x2 - rw; y2 = y1 + rh; }
+        if (hi === 7) { x2 = x1 + rw; y2 = y1 + rh; }
+      }
+
+      x1 = Math.max(x1, cb.x); y1 = Math.max(y1, cb.y);
+      x2 = Math.min(x2, cb.x + cb.w); y2 = Math.min(y2, cb.y + cb.h);
+      nx = x1; ny = y1; nw = x2 - x1; nh = y2 - y1;
+    }
+    this.cropRect = { x: nx, y: ny, w: nw, h: nh };
+    this._drawCropOverlay();
+  }
+
+  _handleCropUp() {
+    // Discard rubber-band rects that are too small
+    if (this.cropHandle === 'draw' && this.cropRect &&
+        (this.cropRect.w < 6 || this.cropRect.h < 6)) {
+      this.cropRect = null;
+    }
+    this.cropDragStart = null;
+    this.cropHandle    = -1;
+    this._drawCropOverlay();
+  }
+
+  _drawCropOverlay() {
+    if (!this.cropMode) return;
+    const pctx = this.pctx;
+    const W = this.preview.width, H = this.preview.height;
+    pctx.clearRect(0, 0, W, H);
+    const hintEl = document.getElementById('cropHint');
+    const cb = this.cropBounds;
+
+    // ── Re-crop mode: show full original image ─────────────────────────────
+    if (this.cropOrigImg && cb) {
+      // 1. Dark overlay over entire canvas
+      pctx.save();
+      pctx.fillStyle = 'rgba(0,0,0,0.65)';
+      pctx.fillRect(0, 0, W, H);
+      pctx.restore();
+
+      // 2. Draw the full original image dimmed over its original bounds
+      pctx.save();
+      pctx.globalAlpha = 0.55;
+      pctx.drawImage(this.cropOrigImg, cb.x, cb.y, cb.w, cb.h);
+      pctx.restore();
+
+      if (!this.cropRect) {
+        // No selection yet — dashed boundary + hint
+        if (hintEl) hintEl.textContent = 'Drag to select crop area';
+        pctx.save();
+        pctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        pctx.lineWidth = 1.5;
+        pctx.setLineDash([6, 4]);
+        pctx.strokeRect(cb.x + 0.5, cb.y + 0.5, cb.w, cb.h);
+        pctx.setLineDash([]);
+        pctx.restore();
+        return;
+      }
+
+      if (hintEl) hintEl.textContent = 'Drag handles to adjust  •  click outside to redraw';
+      const { x, y, w, h } = this.cropRect;
+
+      // 3. Within cropRect: clear overlay + draw original at full brightness
+      pctx.save();
+      pctx.beginPath(); pctx.rect(x, y, w, h); pctx.clip();
+      pctx.clearRect(x, y, w, h);
+      pctx.drawImage(this.cropOrigImg, cb.x, cb.y, cb.w, cb.h);
+      pctx.restore();
+
+      // 4. Rule-of-thirds
+      pctx.save();
+      pctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      pctx.lineWidth = 1;
+      for (let i = 1; i <= 2; i++) {
+        pctx.beginPath(); pctx.moveTo(x + w * i / 3, y); pctx.lineTo(x + w * i / 3, y + h); pctx.stroke();
+        pctx.beginPath(); pctx.moveTo(x, y + h * i / 3); pctx.lineTo(x + w, y + h * i / 3); pctx.stroke();
+      }
+      pctx.restore();
+
+      // 5. Crop border
+      pctx.save();
+      pctx.strokeStyle = '#fff';
+      pctx.lineWidth = 1.5;
+      pctx.strokeRect(x + 0.5, y + 0.5, w, h);
+      pctx.restore();
+
+      // 6. Handles
+      const HS = 8;
+      pctx.save();
+      this._cropHandlePositions().forEach(({ hx, hy }) => {
+        pctx.fillStyle = '#fff'; pctx.strokeStyle = '#0078d4'; pctx.lineWidth = 1.5;
+        pctx.beginPath(); pctx.rect(hx - HS/2, hy - HS/2, HS, HS); pctx.fill(); pctx.stroke();
+      });
+      pctx.restore();
+      return;
+    }
+
+    // ── First-crop mode ────────────────────────────────────────────────────
+    if (!this.cropRect) {
+      // No selection yet — dim + dashed boundary + hint
+      if (hintEl) hintEl.textContent = 'Drag to select crop area';
+      if (!cb) return;
+      const { x: ox, y: oy, w: ow, h: oh } = cb;
+      pctx.save();
+      pctx.fillStyle = 'rgba(0,0,0,0.35)';
+      pctx.fillRect(0, 0, W, oy);
+      pctx.fillRect(0, oy + oh, W, H - oy - oh);
+      pctx.fillRect(0, oy, ox, oh);
+      pctx.fillRect(ox + ow, oy, W - ox - ow, oh);
+      pctx.restore();
+      pctx.save();
+      pctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      pctx.lineWidth = 1.5;
+      pctx.setLineDash([6, 4]);
+      pctx.strokeRect(ox + 0.5, oy + 0.5, ow, oh);
+      pctx.setLineDash([]);
+      pctx.restore();
+      pctx.save();
+      const label = 'Drag to select crop area';
+      pctx.font = 'bold 13px sans-serif';
+      const tw = pctx.measureText(label).width;
+      pctx.fillStyle = 'rgba(0,0,0,0.6)';
+      pctx.fillRect(ox + ow/2 - tw/2 - 10, oy + oh/2 - 13, tw + 20, 26);
+      pctx.fillStyle = '#fff';
+      pctx.textAlign = 'center'; pctx.textBaseline = 'middle';
+      pctx.fillText(label, ox + ow/2, oy + oh/2);
+      pctx.restore();
+      return;
+    }
+
+    if (hintEl) hintEl.textContent = 'Drag handles to adjust  •  click outside to redraw';
+    const { x, y, w, h } = this.cropRect;
+
+    // Dark vignette outside crop rect
+    pctx.save();
+    pctx.fillStyle = 'rgba(0,0,0,0.5)';
+    pctx.fillRect(0, 0, W, y);
+    pctx.fillRect(0, y + h, W, H - y - h);
+    pctx.fillRect(0, y, x, h);
+    pctx.fillRect(x + w, y, W - x - w, h);
+    pctx.restore();
+
+    // Rule-of-thirds guide lines
+    pctx.save();
+    pctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    pctx.lineWidth = 1;
+    for (let i = 1; i <= 2; i++) {
+      pctx.beginPath(); pctx.moveTo(x + w * i / 3, y); pctx.lineTo(x + w * i / 3, y + h); pctx.stroke();
+      pctx.beginPath(); pctx.moveTo(x, y + h * i / 3); pctx.lineTo(x + w, y + h * i / 3); pctx.stroke();
+    }
+    pctx.restore();
+
+    // Crop border
+    pctx.save();
+    pctx.strokeStyle = '#fff';
+    pctx.lineWidth = 1.5;
+    pctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    pctx.restore();
+
+    // 8 resize handles
+    const HS = 8;
+    pctx.save();
+    this._cropHandlePositions().forEach(({ hx, hy }) => {
+      pctx.fillStyle = '#fff'; pctx.strokeStyle = '#0078d4'; pctx.lineWidth = 1.5;
+      pctx.beginPath(); pctx.rect(hx - HS/2, hy - HS/2, HS, HS); pctx.fill(); pctx.stroke();
+    });
+    pctx.restore();
   }
 
   /* ── Remove Background ─────────────────────────────────── */

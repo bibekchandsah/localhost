@@ -632,3 +632,40 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ─── Crop confirm bar ───────────────────────────────────── */
+.cv-crop-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 40px;
+  background: #1a3a5c;
+  border-top: 1px solid #1e5799;
+  font-size: 12px;
+  color: #cde;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.5);
+}
+.cv-crop-bar i { color: var(--acc); }
+.cv-crop-bar span { flex: 1; }
+.cv-crop-bar-actions { display: flex; gap: 6px; }
+.cv-crop-btn {
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.cv-crop-cancel { background: #444; color: #ccc; }
+.cv-crop-cancel:hover { background: #555; }
+.cv-crop-apply  { background: var(--acc); color: #fff; }
+.cv-crop-apply:hover { opacity: 0.88; }
+
+/* flip flyout menu width */
+.cv-flip-menu { min-width: 180px; }
