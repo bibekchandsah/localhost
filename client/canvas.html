@@ -90,6 +90,15 @@
 
       <div class="cv-div"></div>
 
+      <!-- Copy / Paste / Duplicate -->
+      <div class="cv-group">
+        <button class="cv-tool" id="copyBtn"      title="Copy  Ctrl+C"><i class="fa-regular fa-copy"></i></button>
+        <button class="cv-tool" id="pasteBtn"     title="Paste  Ctrl+V"><i class="fa-solid fa-paste"></i></button>
+        <button class="cv-tool" id="duplicateBtn" title="Duplicate  Ctrl+D"><i class="fa-solid fa-clone"></i></button>
+      </div>
+
+      <div class="cv-div"></div>
+
       <!-- Group / Ungroup -->
       <div class="cv-group">
         <button class="cv-tool" id="groupBtn"   title="Group selected  Ctrl+G"         disabled><i class="fa-solid fa-object-group"></i></button>
@@ -186,6 +195,16 @@
       <div id="textOverlay" class="cv-text-overlay">
         <textarea id="textInput" class="cv-text-input" rows="2" placeholder="Type…"></textarea>
       </div>
+    </div>
+
+    <!-- ── Page strip ────────────────────────────────────── -->
+    <div class="cv-pages-bar" id="pagesBar">
+      <div class="cv-pages-scroll" id="pagesScroll">
+        <!-- page thumbnails injected by JS -->
+      </div>
+      <button class="cv-page-add" id="pageAddBtn" title="Add new page">
+        <i class="fa-solid fa-plus"></i>
+      </button>
     </div>
 
   </div>

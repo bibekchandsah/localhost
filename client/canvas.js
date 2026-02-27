@@ -81,6 +81,16 @@ class CanvasApp {
     this.pctx    = this.preview.getContext('2d');
     this.wrap    = document.getElementById('cvArea');
 
+    // Pages
+    this.pages          = null; // initialized in init() after saveSnap()
+    this.currentPageIdx = 0;
+
+    // Clipboard (internal copy/paste of objects)
+    this._clipboard = [];
+    this._canvasClipboardOwned = false; // true after Ctrl+C on canvas objects
+    // Image element cache: objId → HTMLImageElement
+    this._imgCache = new Map();
+
     this.PALETTE = [
       '#000000','#ffffff','#e74c3c','#e67e22',
       '#f1c40f','#2ecc71','#1abc9c','#3498db',
@@ -103,7 +113,12 @@ class CanvasApp {
     this.bindUI();
     this.bindCanvas();
     this.saveSnap();               // snapshot of blank canvas
+    this._initPages();             // set up page strip after first snap
+    document.addEventListener('paste', e => this._handleExternalPaste(e));
     window.addEventListener('resize', () => this.resize());
+    // When the window regains focus the user may have copied something in another app,
+    // so release ownership of the canvas clipboard so the next Ctrl+V checks the OS clipboard.
+    window.addEventListener('focus', () => { this._canvasClipboardOwned = false; });
     // Allow parent page to trigger a resize after making overlay visible
     window.addEventListener('message', e => {
       if (e.data === 'canvas-resize') this.resize();
@@ -279,6 +294,11 @@ class CanvasApp {
     sidesR.addEventListener('change', () => {
       if (this.selectedIds.size > 0) this.saveSnap();
     });
+
+    // Copy / Paste / Duplicate
+    document.getElementById('copyBtn').addEventListener('click',      () => this._copySelected());
+    document.getElementById('pasteBtn').addEventListener('click',     () => this._pasteClipboard());
+    document.getElementById('duplicateBtn').addEventListener('click', () => this._duplicateSelected());
 
     // Group / Ungroup
     document.getElementById('groupBtn').addEventListener('click',   () => this._groupSelected());
@@ -989,6 +1009,19 @@ class CanvasApp {
       return;
     }
 
+    if (type === 'image') {
+      const bx = base.x, by = base.y, bw = base.w, bh = base.h;
+      let nx = bx, ny = by, nw = bw, nh = bh;
+      if ([0,3,5].includes(hi)) { nx = bx + dx; nw = bw - dx; }
+      if ([2,4,7].includes(hi)) { nw = bw + dx; }
+      if ([0,1,2].includes(hi)) { ny = by + dy; nh = bh - dy; }
+      if ([5,6,7].includes(hi)) { nh = bh + dy; }
+      if (nw < 10) nw = 10; if (nh < 10) nh = 10;
+      [nx, ny, nw, nh] = _shiftConstrain(bx, by, bw, bh, nx, ny, nw, nh);
+      obj.x = nx; obj.y = ny; obj.w = nw; obj.h = nh;
+      return;
+    }
+
     // Shape: manipulate x1,y1,x2,y2
     const sbx=Math.min(base.x1,base.x2), sby=Math.min(base.y1,base.y2);
     const sbw=Math.abs(base.x2-base.x1), sbh=Math.abs(base.y2-base.y1);
@@ -1081,6 +1114,7 @@ class CanvasApp {
     const type = dst.type || dst.tool;
     if (type === 'stroke')      { dst.points = src.points; }
     else if (type === 'text')   { dst.x = src.x; dst.y = src.y; dst.fontSize = src.fontSize; }
+    else if (type === 'image')  { dst.x = src.x; dst.y = src.y; dst.w = src.w; dst.h = src.h; }
     else if (type === 'group')  { dst.children = src.children; }
     else                        { dst.x1=src.x1; dst.y1=src.y1; dst.x2=src.x2; dst.y2=src.y2; }
   }
@@ -1220,6 +1254,7 @@ class CanvasApp {
     if (this.history.length > this.MAX_HISTORY) this.history.shift();
     this.historyPtr = this.history.length - 1;
     this.updateHistoryUI();
+    this._updateCurrentPageThumbnail();
   }
 
   undo() {
@@ -1229,6 +1264,7 @@ class CanvasApp {
     this.objects = this._cloneObjects(this.history[this.historyPtr]);
     this.renderAll();
     this.updateHistoryUI();
+    this._updateCurrentPageThumbnail();
   }
 
   redo() {
@@ -1238,6 +1274,7 @@ class CanvasApp {
     this.objects = this._cloneObjects(this.history[this.historyPtr]);
     this.renderAll();
     this.updateHistoryUI();
+    this._updateCurrentPageThumbnail();
   }
 
   updateHistoryUI() {
@@ -1301,6 +1338,10 @@ class CanvasApp {
         this._drawSelectionOverlay();
         return;
       }
+      if (e.key === 'c' || e.key === 'C') { e.preventDefault(); this._copySelected(); return; }
+      if (e.key === 'd' || e.key === 'D') { e.preventDefault(); this._duplicateSelected(); return; }
+      // Ctrl+V: handled entirely via the 'paste' DOM event (see _handleExternalPaste).
+      // Do NOT preventDefault here — that would suppress the paste event in Chromium.
       return;
     }
 
@@ -1502,6 +1543,11 @@ class CanvasApp {
 
     if (type === 'text') {
       this._drawText(ctx, obj);
+      return;
+    }
+
+    if (type === 'image') {
+      this._drawImageObj(ctx, obj);
       return;
     }
 
@@ -2257,7 +2303,7 @@ class CanvasApp {
         type === 'speechbubble' || type === 'speechoval' ||
         type === 'bookmark' || type === 'ribbon' ||
         type === 'arch' || type === 'stadium' ||
-        type === 'star' || type === 'starburst') {
+        type === 'star' || type === 'starburst' || type === 'image') {
       // Always use bounding-box containment — polygon/triangle edges are inside the bbox,
       // so outline-only checking leaves most of the shape un-hittable.
       return lx >= b.x - pad && lx <= b.x + b.w + pad && ly >= b.y - pad && ly <= b.y + b.h + pad;
@@ -2348,6 +2394,9 @@ class CanvasApp {
       const h = obj.lines.length * obj.fontSize * 1.4;
       return { x: obj.x, y: obj.y, w, h };
     }
+    if (type === 'image') {
+      return { x: obj.x, y: obj.y, w: obj.w, h: obj.h };
+    }
     const x1 = Math.min(obj.x1, obj.x2), y1 = Math.min(obj.y1, obj.y2);
     const x2 = Math.max(obj.x1, obj.x2), y2 = Math.max(obj.y1, obj.y2);
     return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
@@ -2405,6 +2454,12 @@ class CanvasApp {
       return;
     }
 
+    if (type === 'image') {
+      obj.x = base.x + dx;
+      obj.y = base.y + dy;
+      return;
+    }
+
     obj.x1 = base.x1 + dx;
     obj.y1 = base.y1 + dy;
     obj.x2 = base.x2 + dx;
@@ -2435,6 +2490,11 @@ class CanvasApp {
       obj.x = newB.x + (obj.x - oldB.x) * sx;
       obj.y = newB.y + (obj.y - oldB.y) * sy;
       obj.fontSize = Math.max(6, obj.fontSize * Math.max(sx, sy));
+    } else if (type === 'image') {
+      obj.x = newB.x + (obj.x - oldB.x) * sx;
+      obj.y = newB.y + (obj.y - oldB.y) * sy;
+      obj.w = Math.max(10, obj.w * sx);
+      obj.h = Math.max(10, obj.h * sy);
     } else if (type === 'group') {
       obj.children.forEach(c => this._scaleObjCoords(c, oldB, newB));
     } else {
@@ -2518,7 +2578,7 @@ class CanvasApp {
       else obj.size = value;
     }
     if (prop === 'cornerRadius') {
-      if (['rect', 'polygon', 'triangle', 'hexagon', 'star', 'starburst'].includes(type)) obj.cornerRadius = value;
+      if (['rect', 'polygon', 'triangle', 'hexagon', 'star', 'starburst', 'image'].includes(type)) obj.cornerRadius = value;
     }
     if (prop === 'sides') {
       if (['polygon', 'triangle', 'hexagon', 'star', 'starburst'].includes(type)) obj.sides = Math.round(value);
@@ -2556,7 +2616,7 @@ class CanvasApp {
       document.getElementById('sizeVal').textContent = repSize;
     }
     const repType = rep.type || rep.tool;
-    if (repType === 'rect' || repType === 'polygon' || repType === 'triangle' || repType === 'hexagon') {
+    if (repType === 'rect' || repType === 'polygon' || repType === 'triangle' || repType === 'hexagon' || repType === 'image') {
       const cr = rep.cornerRadius != null ? rep.cornerRadius : 0;
       this.cornerRadius = cr;
       document.getElementById('cornerRoundingRange').value = cr;
@@ -2587,6 +2647,332 @@ class CanvasApp {
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     return `rgba(${r},${g},${b},${a})`;
+  }
+
+  /* ── Clipboard copy / paste ──────────────────────────────── */
+
+  _copySelected() {
+    if (this.selectedIds.size === 0) return;
+    this._clipboard = [...this.selectedIds].map(id => {
+      const obj = this._getObjectById(id);
+      return obj ? this._cloneObject(obj) : null;
+    }).filter(Boolean);
+    // Flag that canvas copy owns the clipboard; Ctrl+V should prefer canvas objects
+    // over whatever image might be sitting in the OS clipboard.
+    this._canvasClipboardOwned = this._clipboard.length > 0;
+  }
+
+  _duplicateSelected() {
+    if (this.selectedIds.size === 0) return;
+    const OFFSET = 16;
+    const newIds = new Set();
+    const duped = [...this.selectedIds].map(id => {
+      const obj = this._getObjectById(id);
+      if (!obj) return null;
+      const c = this._cloneObject(obj);
+      c.id = this._nextId++;
+      this._offsetObj(c, OFFSET, OFFSET);
+      newIds.add(c.id);
+      return c;
+    }).filter(Boolean);
+    if (!duped.length) return;
+    this.objects.push(...duped);
+    this.selectedIds = newIds;
+    this.renderAll();
+    this._drawSelectionOverlay();
+    this.saveSnap();
+  }
+
+  _pasteClipboard() {
+    // If canvas objects are on the clipboard, paste them
+    if (this._canvasClipboardOwned && this._clipboard.length > 0) {
+      this._pasteCanvasObjects();
+      return;
+    }
+    // Otherwise try to read an image from the OS clipboard via the async API
+    if (navigator.clipboard && navigator.clipboard.read) {
+      navigator.clipboard.read().then(items => {
+        for (const item of items) {
+          const imgType = item.types.find(t => t.startsWith('image/'));
+          if (imgType) {
+            item.getType(imgType).then(blob => {
+              const reader = new FileReader();
+              reader.onload = ev => this._pasteImageSrc(ev.target.result);
+              reader.readAsDataURL(blob);
+            });
+            return;
+          }
+        }
+        // No image found — paste internal objects if any
+        this._pasteCanvasObjects();
+      }).catch(() => this._pasteCanvasObjects());
+      return;
+    }
+    this._pasteCanvasObjects();
+  }
+
+  _pasteCanvasObjects() {
+    if (this._clipboard.length === 0) return;
+    const OFFSET = 16;
+    this._setSelection(null);
+    const newIds = new Set();
+    const pasted = this._clipboard.map(obj => {
+      const c = this._cloneObject(obj);
+      c.id = this._nextId++;
+      this._offsetObj(c, OFFSET, OFFSET);
+      newIds.add(c.id);
+      return c;
+    });
+    this.objects.push(...pasted);
+    this.selectedIds = newIds;
+    // Update clipboard so repeated pastes cascade
+    this._clipboard = pasted.map(o => this._cloneObject(o));
+    this.renderAll();
+    this._drawSelectionOverlay();
+    this.saveSnap();
+  }
+
+  _offsetObj(obj, dx, dy) {
+    const type = obj.type || obj.tool;
+    if (type === 'stroke') {
+      obj.points = obj.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+    } else if (type === 'text' || type === 'image') {
+      obj.x += dx; obj.y += dy;
+    } else if (type === 'group') {
+      obj.children.forEach(c => this._offsetObj(c, dx, dy));
+    } else {
+      obj.x1 += dx; obj.y1 += dy; obj.x2 += dx; obj.y2 += dy;
+    }
+  }
+
+  /* ── Image from OS clipboard ──────────────────────────────── */
+
+  _handleExternalPaste(e) {
+    // Let the browser handle paste into text inputs (text tool overlay)
+    if (this.isTyping()) return;
+    e.preventDefault();
+    // If the user's most recent Ctrl+C was on canvas objects, always paste those
+    // regardless of what's in the OS clipboard (e.g. a previously copied image).
+    if (this._canvasClipboardOwned && this._clipboard.length > 0) {
+      this._pasteClipboard();
+      return;
+    }
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const imgItem = items.find(it => it.type.startsWith('image/'));
+    if (imgItem) {
+      const blob = imgItem.getAsFile();
+      if (blob) {
+        const reader = new FileReader();
+        reader.onload = ev => this._pasteImageSrc(ev.target.result);
+        reader.readAsDataURL(blob);
+        return;
+      }
+    }
+    // No OS image — fall back to internal canvas-object clipboard
+    this._pasteClipboard();
+  }
+
+  _pasteImageSrc(src) {
+    const img = new Image();
+    img.onload = () => {
+      const cw = this.main.width  || 800;
+      const ch = this.main.height || 600;
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      const maxW = cw * 0.8, maxH = ch * 0.8;
+      if (w > maxW || h > maxH) {
+        const scale = Math.min(maxW / w, maxH / h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+      }
+      const x = Math.round((cw - w) / 2);
+      const y = Math.round((ch - h) / 2);
+      const obj = { id: this._nextId++, type: 'image', x, y, w, h, src, rotation: 0, opacity: 1 };
+      this._imgCache.set(obj.id, img);
+      this.objects.push(obj);
+      this._setSelection(obj.id);
+      this.renderAll();
+      this._drawSelectionOverlay();
+      this.saveSnap();
+    };
+    img.src = src;
+  }
+
+  _drawImageObj(ctx, obj) {
+    let img = this._imgCache.get(obj.id);
+    if (!img) {
+      img = new Image();
+      img.onload = () => this.renderAll();
+      img.src = obj.src;
+      this._imgCache.set(obj.id, img);
+    }
+    if (!img.complete || img.naturalWidth === 0) return;
+    ctx.save();
+    ctx.globalAlpha = obj.opacity != null ? obj.opacity : 1;
+    const rotation = obj.rotation || 0;
+    if (rotation) {
+      const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate(rotation);
+      ctx.translate(-cx, -cy);
+    }
+    const cr = obj.cornerRadius || 0;
+    if (cr > 0) {
+      const r = (cr / 100) * Math.min(obj.w, obj.h) / 2;
+      ctx.beginPath();
+      ctx.roundRect(obj.x, obj.y, obj.w, obj.h, r);
+      ctx.clip();
+    }
+    ctx.drawImage(img, obj.x, obj.y, obj.w, obj.h);
+    ctx.restore();
+  }
+
+  /* ── Pages ─────────────────────────────────────────────── */
+
+  _initPages() {
+    this.pages = [{
+      objects:    this._cloneObjects(),
+      history:    this.history.map(s => this._cloneObjects(s)),
+      historyPtr: this.historyPtr,
+      bgColor:    this.bgColor,
+      bgVisible:  this.bgVisible
+    }];
+    this.currentPageIdx = 0;
+    this._rebuildPageStrip();
+    document.getElementById('pageAddBtn').addEventListener('click', () => this._addPage());
+  }
+
+  _savePage(idx) {
+    this.pages[idx].objects    = this._cloneObjects();
+    this.pages[idx].history    = this.history.map(s => this._cloneObjects(s));
+    this.pages[idx].historyPtr = this.historyPtr;
+    this.pages[idx].bgColor    = this.bgColor;
+    this.pages[idx].bgVisible  = this.bgVisible;
+  }
+
+  _loadPage(idx) {
+    const p = this.pages[idx];
+    this.objects    = this._cloneObjects(p.objects);
+    this.history    = p.history.map(s => this._cloneObjects(s));
+    this.historyPtr = p.historyPtr;
+    this.bgColor    = p.bgColor;
+    this.bgVisible  = p.bgVisible;
+  }
+
+  _switchPage(idx) {
+    if (idx === this.currentPageIdx) return;
+    this._savePage(this.currentPageIdx);
+    this.currentPageIdx = idx;
+    this._loadPage(idx);
+    this._setSelection(null);
+    this.renderAll();
+    this.updateHistoryUI();
+    this._syncBgUI();
+    this._rebuildPageStrip();
+  }
+
+  _syncBgUI() {
+    document.getElementById('bgColorPicker').value = this.bgColor;
+    document.getElementById('bgColorPreview').style.background = this.bgColor;
+    const btn = document.getElementById('bgToggle');
+    btn.querySelector('i').className = this.bgVisible ? 'fa-solid fa-eye' : 'fa-solid fa-eye-slash';
+    btn.classList.toggle('active', this.bgVisible);
+    this.wrap.classList.toggle('bg-hidden', !this.bgVisible);
+  }
+
+  _addPage() {
+    this._savePage(this.currentPageIdx);
+    this.pages.push({
+      objects:    [],
+      history:    [[]],
+      historyPtr: 0,
+      bgColor:    '#252525',
+      bgVisible:  true
+    });
+    this.currentPageIdx = this.pages.length - 1;
+    this._loadPage(this.currentPageIdx);
+    this._setSelection(null);
+    this.renderAll();
+    this.updateHistoryUI();
+    this._syncBgUI();
+    this._rebuildPageStrip();
+    setTimeout(() => {
+      const scroll = document.getElementById('pagesScroll');
+      if (scroll) scroll.scrollLeft = scroll.scrollWidth;
+    }, 50);
+  }
+
+  _deletePage(idx) {
+    if (this.pages.length <= 1) return;
+    if (!confirm(`Delete Page ${idx + 1}?`)) return;
+    this.pages.splice(idx, 1);
+    let newIdx = this.currentPageIdx;
+    if (newIdx >= idx && newIdx > 0) newIdx--;
+    if (newIdx >= this.pages.length) newIdx = this.pages.length - 1;
+    this.currentPageIdx = newIdx;
+    this._loadPage(newIdx);
+    this._setSelection(null);
+    this.renderAll();
+    this.updateHistoryUI();
+    this._syncBgUI();
+    this._rebuildPageStrip();
+  }
+
+  _rebuildPageStrip() {
+    const scroll = document.getElementById('pagesScroll');
+    if (!scroll) return;
+    scroll.innerHTML = '';
+    this.pages.forEach((page, idx) => {
+      const thumb = document.createElement('div');
+      thumb.className = 'cv-page-thumb' + (idx === this.currentPageIdx ? ' active' : '');
+      const wrap = document.createElement('div');
+      wrap.className = 'cv-page-canvas-wrap';
+      const tc = document.createElement('canvas');
+      tc.width  = 124;
+      tc.height = 108;
+      wrap.appendChild(tc);
+      const label = document.createElement('div');
+      label.className = 'cv-page-label';
+      label.textContent = `Page ${idx + 1}`;
+      wrap.appendChild(label);
+      const del = document.createElement('span');
+      del.className = 'cv-page-del';
+      del.textContent = '×';
+      del.title = 'Delete page';
+      del.addEventListener('click', e => { e.stopPropagation(); this._deletePage(idx); });
+      thumb.appendChild(wrap);
+      thumb.appendChild(del);
+      thumb.addEventListener('click', () => this._switchPage(idx));
+      scroll.appendChild(thumb);
+      requestAnimationFrame(() => this._renderThumbnail(tc, page, idx));
+    });
+  }
+
+  _renderThumbnail(tc, page, idx) {
+    const tctx = tc.getContext('2d');
+    tctx.clearRect(0, 0, tc.width, tc.height);
+    const objs      = idx === this.currentPageIdx ? this.objects   : page.objects;
+    const bgColor   = idx === this.currentPageIdx ? this.bgColor   : page.bgColor;
+    const bgVisible = idx === this.currentPageIdx ? this.bgVisible : page.bgVisible;
+    if (bgVisible) { tctx.fillStyle = bgColor; tctx.fillRect(0, 0, tc.width, tc.height); }
+    const cw = this.main.width  || tc.width;
+    const ch = this.main.height || tc.height;
+    tctx.save();
+    tctx.scale(tc.width / cw, tc.height / ch);
+    objs.forEach(obj => this._drawObject(tctx, obj));
+    tctx.restore();
+  }
+
+  _updateCurrentPageThumbnail() {
+    if (!this.pages) return;
+    const scroll = document.getElementById('pagesScroll');
+    if (!scroll) return;
+    const thumbs = scroll.querySelectorAll('.cv-page-thumb');
+    const activeThumb = thumbs[this.currentPageIdx];
+    if (!activeThumb) return;
+    const tc = activeThumb.querySelector('canvas');
+    if (!tc) return;
+    this._renderThumbnail(tc, this.pages[this.currentPageIdx], this.currentPageIdx);
   }
 }
 

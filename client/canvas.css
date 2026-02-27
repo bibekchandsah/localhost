@@ -79,6 +79,7 @@ body {
   display: flex;
   gap: 1px;
   flex-shrink: 0;
+  align-items: center;
 }
 
 /* ─── Brush flyout ──────────────────────────────────────── */
@@ -353,4 +354,133 @@ body {
   line-height: 1.4;
   caret-color: currentColor;
   overflow: hidden;
+}
+
+/* ─── Page strip ─────────────────────────────────────────── */
+.cv-pages-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 74px;
+  flex-shrink: 0;
+  background: var(--tb);
+  border-top: 1px solid var(--tb-border);
+  padding: 0 8px;
+  border-radius: 10px 10px 0px 0px;
+}
+
+.cv-pages-scroll {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 100%;
+  padding: 8px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tb-border) transparent;
+}
+.cv-pages-scroll::-webkit-scrollbar { height: 4px; }
+.cv-pages-scroll::-webkit-scrollbar-track { background: transparent; }
+.cv-pages-scroll::-webkit-scrollbar-thumb { background: var(--tb-border); border-radius: 2px; }
+
+/* Individual page thumbnail card */
+.cv-page-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 62px;
+  height: 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.cv-page-thumb:hover .cv-page-canvas-wrap {
+  border-color: var(--acc);
+}
+.cv-page-thumb.active .cv-page-canvas-wrap {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 2px rgba(0,120,212,0.4);
+}
+
+.cv-page-canvas-wrap {
+  position: relative;
+  width: 62px;
+  height: 54px;
+  flex-shrink: 0;
+  border: 2px solid var(--tb-border);
+  border-radius: 7px 7px 7px 7px;
+  overflow: hidden;
+  background: #252525;
+  transition: border-color 0.15s;
+}
+.cv-page-canvas-wrap canvas {
+  width: 62px;
+  height: 54px;
+  display: block;
+}
+
+/* Page number label — overlaid inside the frame at the bottom */
+.cv-page-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  font-size: 9px;
+  color: rgba(255,255,255,0.75);
+  /* background: rgba(0,0,0,0.45); */
+  text-align: center;
+  padding: 1px 0 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.cv-page-thumb.active .cv-page-label {
+  color: #fff;
+  /* background: rgba(0,120,212,0.55); */
+}
+
+/* Delete × badge */
+.cv-page-del {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+  background: rgba(60,60,60,0.9);
+  border: 1px solid var(--tb-border);
+  border-radius: 50%;
+  color: var(--txt2);
+  font-size: 9px;
+  line-height: 12px;
+  text-align: center;
+  cursor: pointer;
+  display: none;
+  z-index: 5;
+}
+.cv-page-thumb:hover .cv-page-del { display: block; }
+.cv-page-del:hover { background: #c0392b; color: #fff; border-color: #c0392b; }
+
+/* Add page button */
+.cv-page-add {
+  flex-shrink: 0;
+  width: 36px;
+  height: 54px;
+  background: transparent;
+  border: 2px dashed var(--tb-border);
+  border-radius: 7px 7px 3px 3px;
+  color: var(--txt2);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s;
+}
+.cv-page-add:hover {
+  border-color: var(--acc);
+  color: var(--acc);
 }
