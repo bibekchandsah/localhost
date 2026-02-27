@@ -315,6 +315,9 @@ class CanvasApp {
     // Lock / Unlock
     document.getElementById('lockBtn').addEventListener('click', () => this._toggleLock());
 
+    // Remove background (image only)
+    document.getElementById('removeBgBtn').addEventListener('click', () => this._removeBg());
+
     // Layer order
     document.getElementById('bringFrontBtn').addEventListener('click',   () => this._bringToFront());
     document.getElementById('bringForwardBtn').addEventListener('click', () => this._bringForward());
@@ -2943,6 +2946,12 @@ class CanvasApp {
       lockBtn.title = 'Lock / Unlock  Ctrl+L';
       lockBtn.querySelector('i').className = 'fa-solid fa-lock';
     }
+    // Remove Background button — only enabled for a single, unlocked image
+    const removeBgBtn = document.getElementById('removeBgBtn');
+    if (removeBgBtn) {
+      const sole = this.selectedIds.size === 1 ? this._getObjectById([...this.selectedIds][0]) : null;
+      removeBgBtn.disabled = !(sole && sole.type === 'image' && !sole.locked);
+    }
   }
 
   rgba(hex, a) {
@@ -3203,6 +3212,117 @@ class CanvasApp {
     }
     ctx.drawImage(img, obj.x, obj.y, obj.w, obj.h);
     ctx.restore();
+  }
+
+  /* ── Remove Background ─────────────────────────────────── */
+
+  async _removeBg() {
+    if (this.selectedIds.size !== 1) return;
+    const [id] = this.selectedIds;
+    const obj  = this._getObjectById(id);
+    if (!obj || obj.type !== 'image') return;
+
+    const btn    = document.getElementById('removeBgBtn');
+    const icon   = btn.querySelector('i');
+    const overlay = document.getElementById('bgRmOverlay');
+    const bar     = document.getElementById('bgRmBar');
+    const status  = document.getElementById('bgRmStatus');
+    const title   = document.getElementById('bgRmTitle');
+
+    // Helper: update the progress bar + status text
+    const setProgress = (pct, msg) => {
+      bar.style.width = Math.min(100, Math.max(0, pct)) + '%';
+      if (msg) status.textContent = msg;
+    };
+
+    // Guard: prevent multiple simultaneous runs
+    if (window._bgRemovalRunning) return;
+    window._bgRemovalRunning = true;
+
+    btn.disabled       = true;
+    icon.className     = 'fa-solid fa-spinner fa-spin';
+    overlay.style.display = 'flex';
+    title.textContent  = 'Background Removal';
+    setProgress(0, 'Loading AI library…');
+
+    try {
+      // esm.sh rewrites bare-specifier deps (onnxruntime-web) server-side,
+      // so the import works as a plain ES module in any browser without bundling.
+      if (!window._bgRemovalFn) {
+        setProgress(5, 'Fetching library from CDN…');
+        const mod = await import('https://esm.sh/@imgly/background-removal@1.7.0');
+        window._bgRemovalFn = mod.removeBackground;
+      }
+
+      // Has the model been cached from a previous run?
+      const alreadyCached = !!window._bgModelCached;
+      title.textContent = alreadyCached ? 'Processing Image' : 'Downloading AI Model';
+      setProgress(8, alreadyCached ? 'Running AI inference…' : 'Starting download… (first use only, ~95 MB)');
+
+      // Track per-file download progress
+      const fileProgress = {};
+      let processingStarted = false;
+      const onProgress = (key, current, total) => {
+        if (total <= 0) return;
+        // Keys that start with "compute:" are inference phases, not downloads
+        if (key.startsWith('compute:')) {
+          if (!processingStarted) {
+            processingStarted = true;
+            window._bgModelCached = true;
+            title.textContent = 'Processing Image';
+            setProgress(95, 'Running AI inference…');
+          }
+          return;
+        }
+        fileProgress[key] = { current, total };
+        let sumC = 0, sumT = 0;
+        for (const v of Object.values(fileProgress)) { sumC += v.current; sumT += v.total; }
+        const pct = 8 + Math.round((sumC / sumT) * 84); // 8 → 92 %
+        const mb  = n => Math.round(n / 1024 / 1024 * 10) / 10;
+        setProgress(pct, `Downloading model…  ${mb(sumC)} / ${mb(sumT)} MB`);
+      };
+
+      const srcBlob = await fetch(obj.src).then(r => r.blob());
+
+      const resultBlob = await window._bgRemovalFn(srcBlob, {
+        progress: onProgress,
+        // force-cache makes the browser reuse cached model files on every run
+        fetchArgs: { cache: 'force-cache' },
+        // proxyToWorker offloads ONNX inference to a Web Worker so the page stays responsive
+        proxyToWorker: true
+      });
+
+      setProgress(98, 'Finalising…');
+      const newSrc = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload  = e => res(e.target.result);
+        reader.onerror = rej;
+        reader.readAsDataURL(resultBlob);
+      });
+
+      obj.src = newSrc;
+      window._bgModelCached = true;
+      setProgress(100, 'Done!');
+
+      const newImg = new Image();
+      newImg.onload = () => {
+        this._imgCache.set(obj.id, newImg);
+        this.renderAll();
+        this._drawSelectionOverlay();
+      };
+      newImg.src = newSrc;
+      this.saveSnap();
+
+      setTimeout(() => { overlay.style.display = 'none'; }, 700);
+    } catch (err) {
+      console.error('Background removal failed:', err);
+      overlay.style.display = 'none';
+      alert('Background removal failed.\n' + err.message);
+    } finally {
+      window._bgRemovalRunning = false;
+      icon.className = 'fa-solid fa-wand-magic-sparkles';
+      this._updateLayerUI();
+    }
   }
 
   /* ── Pages ─────────────────────────────────────────────── */

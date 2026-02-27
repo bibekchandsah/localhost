@@ -580,3 +580,55 @@ body {
   border-radius: 0 0 8px 8px;
   transform-origin: left;
 }
+
+/* ─── Background-removal overlay ────────────────────────── */
+.cv-bgrm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cv-bgrm-box {
+  background: var(--tb);
+  border: 1px solid var(--tb-border);
+  border-radius: 10px;
+  padding: 24px 28px;
+  min-width: 320px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.cv-bgrm-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--txt);
+}
+.cv-bgrm-header i { color: var(--acc); font-size: 15px; }
+.cv-bgrm-bar-track {
+  height: 6px;
+  background: var(--bg);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.cv-bgrm-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--acc);
+  border-radius: 99px;
+  transition: width 0.25s ease;
+}
+.cv-bgrm-status {
+  font-size: 11px;
+  color: var(--txt2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

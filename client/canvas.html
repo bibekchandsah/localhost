@@ -119,6 +119,15 @@
 
       <div class="cv-div"></div>
 
+      <!-- Image tools (visible only when an image object is selected) -->
+      <div class="cv-group" id="imageToolsGroup">
+        <button class="cv-tool" id="removeBgBtn" title="Remove Background" disabled>
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+        </button>
+      </div>
+
+      <div class="cv-div"></div>
+
       <!-- Group / Ungroup -->
       <div class="cv-group">
         <button class="cv-tool" id="groupBtn"   title="Group selected  Ctrl+G"         disabled><i class="fa-solid fa-object-group"></i></button>
@@ -234,6 +243,20 @@
     <span class="cv-undo-toast-msg"></span>
     <button class="cv-undo-toast-btn">Undo</button>
     <div class="cv-undo-toast-bar"></div>
+  </div>
+
+  <!-- ── Background-removal progress overlay ──────────── -->
+  <div id="bgRmOverlay" class="cv-bgrm-overlay" style="display:none">
+    <div class="cv-bgrm-box">
+      <div class="cv-bgrm-header">
+        <i class="fa-solid fa-wand-magic-sparkles"></i>
+        <span id="bgRmTitle">Removing Background</span>
+      </div>
+      <div class="cv-bgrm-bar-track">
+        <div class="cv-bgrm-bar" id="bgRmBar"></div>
+      </div>
+      <div class="cv-bgrm-status" id="bgRmStatus">Initialising…</div>
+    </div>
   </div>
 
   <script src="canvas.js"></script>
