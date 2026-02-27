@@ -642,6 +642,7 @@ class CanvasApp {
     if (this.isGroupResizing) {
       this._applyGroupResize(x, y);
       this.renderAll(); this._drawSelectionOverlay();
+      this._drawAlignmentGuides();
       return;
     }
     if (this.isRotating) {
@@ -658,6 +659,7 @@ class CanvasApp {
       this._applyResize(x, y);
       this.renderAll();
       this._drawSelectionOverlay();
+      this._drawAlignmentGuides();
       return;
     }
 
@@ -677,6 +679,7 @@ class CanvasApp {
     }
     this.renderAll();
     this._drawSelectionOverlay();
+    this._drawAlignmentGuides();
   }
 
   _handleSelectUp(x, y) {
@@ -704,6 +707,7 @@ class CanvasApp {
     if (this.isResizing) {
       this.isResizing = false;
       this.isDrawing  = false;
+      this._alignGuides = null; // clear guides
       this.saveSnap();
       this._drawSelectionOverlay();
       return;
@@ -720,6 +724,7 @@ class CanvasApp {
       this.isDrawing  = false;
       this.dragStart  = null;
       this.dragBases  = null;
+      this._alignGuides = null; // clear guides
       this.saveSnap();
       this._drawSelectionOverlay();
     }
@@ -777,6 +782,7 @@ class CanvasApp {
 
   _drawSelectionOverlay() {
     this.pctx.clearRect(0, 0, this.preview.width, this.preview.height);
+    if (this._alignGuides && this._alignGuides.length) this._paintAlignmentGuides();
     if (this.selectedIds.size === 0) {
       this._updateGroupUI();
       this._drawBrushCursor();
@@ -1005,6 +1011,93 @@ class CanvasApp {
     let deg = Math.round(rad * 180 / Math.PI) % 360;
     if (deg < 0) deg += 360;
     return deg;
+  }
+
+  /* ── Alignment guides ──────────────────────────────────── */
+
+  _drawAlignmentGuides() {
+    const THRESH = 5; // px proximity to snap/show guide
+    // Compute combined AABB of the moving selection
+    let sx1 = Infinity, sy1 = Infinity, sx2 = -Infinity, sy2 = -Infinity;
+    for (const id of this.selectedIds) {
+      const b = this._getAxisAlignedBounds(this._getObjectById(id));
+      if (!b) continue;
+      sx1 = Math.min(sx1, b.x);       sy1 = Math.min(sy1, b.y);
+      sx2 = Math.max(sx2, b.x + b.w); sy2 = Math.max(sy2, b.y + b.h);
+    }
+    if (!isFinite(sx1)) return;
+    const scx = (sx1 + sx2) / 2, scy = (sy1 + sy2) / 2;
+    const selAnchorsX = [sx1, scx, sx2];
+    const selAnchorsY = [sy1, scy, sy2];
+
+    const guides = []; // { axis:'x'|'y', value, span:[min,max] }
+
+    for (const obj of this.objects) {
+      if (this.selectedIds.has(obj.id)) continue;
+      const b = this._getAxisAlignedBounds(obj);
+      if (!b) continue;
+      const ox1 = b.x, ox2 = b.x + b.w, ocx = (ox1 + ox2) / 2;
+      const oy1 = b.y, oy2 = b.y + b.h, ocy = (oy1 + oy2) / 2;
+      const targetsX = [ox1, ocx, ox2];
+      const targetsY = [oy1, ocy, oy2];
+
+      for (const sa of selAnchorsX) {
+        for (const ta of targetsX) {
+          if (Math.abs(sa - ta) <= THRESH) {
+            const spanMin = Math.min(sy1, sy2, oy1, oy2);
+            const spanMax = Math.max(sy1, sy2, oy1, oy2);
+            guides.push({ axis: 'x', value: ta, span: [spanMin, spanMax] });
+          }
+        }
+      }
+      for (const sa of selAnchorsY) {
+        for (const ta of targetsY) {
+          if (Math.abs(sa - ta) <= THRESH) {
+            const spanMin = Math.min(sx1, sx2, ox1, ox2);
+            const spanMax = Math.max(sx1, sx2, ox1, ox2);
+            guides.push({ axis: 'y', value: ta, span: [spanMin, spanMax] });
+          }
+        }
+      }
+    }
+
+    // Deduplicate by axis+value
+    const seen = new Set();
+    this._alignGuides = guides.filter(g => {
+      const key = `${g.axis}${g.value.toFixed(1)}`;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+    this._paintAlignmentGuides();
+  }
+
+  _paintAlignmentGuides() {
+    if (!this._alignGuides || !this._alignGuides.length) return;
+    const ctx = this.pctx;
+    const W = this.preview.width, H = this.preview.height;
+    ctx.save();
+    ctx.strokeStyle = '#ff00ff';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([5, 4]);
+    ctx.lineDashOffset = 0;
+    for (const g of this._alignGuides) {
+      const [sp0, sp1] = g.span;
+      ctx.beginPath();
+      if (g.axis === 'x') {
+        // Vertical line — extend slightly beyond the span
+        const pad = 16;
+        ctx.moveTo(g.value + 0.5, Math.max(0, sp0 - pad));
+        ctx.lineTo(g.value + 0.5, Math.min(H, sp1 + pad));
+      } else {
+        // Horizontal line
+        const pad = 16;
+        ctx.moveTo(Math.max(0, sp0 - pad), g.value + 0.5);
+        ctx.lineTo(Math.min(W, sp1 + pad), g.value + 0.5);
+      }
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 
   /** Rotates point (px,py) around center (cx,cy) by angle radians */
