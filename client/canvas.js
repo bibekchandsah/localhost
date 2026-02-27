@@ -171,6 +171,8 @@ class CanvasApp {
     document.getElementById('colorPicker').value = c;
     document.getElementById('colorPreview').style.background = c;
     if (this.selectedIds.size > 0) {
+      const allLocked = [...this.selectedIds].every(id => { const o = this._getObjectById(id); return o && o.locked; });
+      if (allLocked) return;
       this._applyPropToSelected('color', c);
       this.saveSnap();
     }
@@ -309,6 +311,9 @@ class CanvasApp {
     document.getElementById('copyBtn').addEventListener('click',      () => this._copySelected());
     document.getElementById('pasteBtn').addEventListener('click',     () => this._pasteClipboard());
     document.getElementById('duplicateBtn').addEventListener('click', () => this._duplicateSelected());
+
+    // Lock / Unlock
+    document.getElementById('lockBtn').addEventListener('click', () => this._toggleLock());
 
     // Layer order
     document.getElementById('bringFrontBtn').addEventListener('click',   () => this._bringToFront());
@@ -565,11 +570,11 @@ class CanvasApp {
       }
     }
 
-    // 1. Check rotation handle (only when single object selected)
+    // 1. Check rotation handle (only when single unlocked object selected)
     if (this.selectedIds.size === 1) {
       const [id] = this.selectedIds;
       const obj  = this._getObjectById(id);
-      if (obj) {
+      if (obj && !obj.locked) {
         if (this._hitRotationHandle(obj, x, y)) {
           this.isRotating   = true;
           this.isDrawing    = true;
@@ -604,14 +609,16 @@ class CanvasApp {
     } else {
       if (hit) {
         if (!this.selectedIds.has(hit.id)) this.selectedIds = new Set([hit.id]);
-        // Begin drag
-        this.isDrawing  = true;
-        this.isDragging = true;
-        this.dragStart  = { x, y };
-        this.dragBases  = new Map();
-        for (const id of this.selectedIds) {
-          const o = this._getObjectById(id);
-          if (o) this.dragBases.set(id, this._cloneObject(o));
+        // Only begin drag if the object is not locked
+        if (!hit.locked) {
+          this.isDrawing  = true;
+          this.isDragging = true;
+          this.dragStart  = { x, y };
+          this.dragBases  = new Map();
+          for (const id of this.selectedIds) {
+            const o = this._getObjectById(id);
+            if (o && !o.locked) this.dragBases.set(id, this._cloneObject(o));
+          }
         }
         this._drawSelectionOverlay();
       } else {
@@ -629,6 +636,7 @@ class CanvasApp {
     if (this.isGroupRotating) {
       this._applyGroupRotate(x, y);
       this.renderAll(); this._drawSelectionOverlay();
+      this._drawRotationAngleLabel();
       return;
     }
     if (this.isGroupResizing) {
@@ -642,6 +650,7 @@ class CanvasApp {
       obj.rotation = Math.atan2(y - this.rotateCenter.y, x - this.rotateCenter.x) + Math.PI / 2;
       this.renderAll();
       this._drawSelectionOverlay();
+      this._drawRotationAngleLabel();
       return;
     }
 
@@ -673,7 +682,7 @@ class CanvasApp {
   _handleSelectUp(x, y) {
     if (this.isGroupRotating) {
       this.isGroupRotating = false; this.isDrawing = false;
-      this.groupRotateBases = null;
+      this.groupRotateBases = null; this._lastRotAngleDeg = null;
       this.saveSnap(); this._drawSelectionOverlay();
       return;
     }
@@ -686,6 +695,7 @@ class CanvasApp {
     if (this.isRotating) {
       this.isRotating = false;
       this.isDrawing  = false;
+      this._lastRotAngleDeg = null;
       this.saveSnap();
       this._drawSelectionOverlay();
       return;
@@ -817,7 +827,7 @@ class CanvasApp {
 
       this._drawDashedRectRotated(b, '#0078d4');
 
-      if (this.selectedIds.size === 1) {
+      if (this.selectedIds.size === 1 && !obj.locked) {
         this._drawResizeHandles(b);
         this._drawRotationHandle(b);
       }
@@ -832,8 +842,11 @@ class CanvasApp {
       const pad = 6;
       this._drawDashedRect(gx1 - pad, gy1 - pad, gx2 - gx1 + pad * 2, gy2 - gy1 + pad * 2, '#e74c3c');
       const gb = { cx: (gx1+gx2)/2, cy: (gy1+gy2)/2, w: gx2-gx1+pad*2, h: gy2-gy1+pad*2, angle: 0 };
-      this._drawResizeHandles(gb);
-      this._drawRotationHandle(gb);
+      const anyUnlocked = [...this.selectedIds].some(id => { const o = this._getObjectById(id); return o && !o.locked; });
+      if (anyUnlocked) {
+        this._drawResizeHandles(gb);
+        this._drawRotationHandle(gb);
+      }
     }
   }
 
@@ -884,6 +897,10 @@ class CanvasApp {
 
   _drawRotationHandle(b) {
     const rh = this._getRotationHandlePos(b);
+    // If actively rotating, draw the angle label next to the handle
+    if ((this.isRotating || this.isGroupRotating) && (this._lastRotAngleDeg != null)) {
+      this._drawRotAnglePill(rh.x, rh.y, this._lastRotAngleDeg);
+    }
     const topCenter = this._rotatePoint(b.cx, b.cy, b.cx, b.cy - b.h / 2, b.angle);
     this.pctx.save();
     this.pctx.strokeStyle = '#0078d4';
@@ -917,6 +934,77 @@ class CanvasApp {
   /** Returns the rotation handle screen-space position */
   _getRotationHandlePos(b) {
     return this._rotatePoint(b.cx, b.cy, b.cx, b.cy - b.h / 2 - this.ROT_OFFSET, b.angle);
+  }
+
+  /** Draw a pill label showing the current rotation angle */
+  _drawRotationAngleLabel() {
+    // Determine angle from the relevant object/group
+    let angleDeg = null;
+    if (this.isRotating) {
+      const obj = this._getObjectById(this.rotateObjId);
+      if (obj) angleDeg = this._normalizeAngleDeg(obj.rotation || 0);
+    } else if (this.isGroupRotating) {
+      // Use the first selected object's rotation as representative
+      const [firstId] = this.selectedIds;
+      const obj = this._getObjectById(firstId);
+      if (obj) angleDeg = this._normalizeAngleDeg(obj.rotation || 0);
+    }
+    if (angleDeg == null) return;
+    this._lastRotAngleDeg = angleDeg;
+
+    // Find the rotation handle position from the current overlay bounds
+    let rh = null;
+    if (this.isRotating) {
+      const obj = this._getObjectById(this.rotateObjId);
+      if (obj) {
+        const b = this._getBoundsForOverlay(obj);
+        if (b) rh = this._getRotationHandlePos(b);
+      }
+    } else if (this.isGroupRotating) {
+      const ids = [...this.selectedIds];
+      let gx1 = Infinity, gy1 = Infinity, gx2 = -Infinity, gy2 = -Infinity;
+      for (const id of ids) {
+        const ab = this._getAxisAlignedBounds(this._getObjectById(id));
+        if (!ab) continue;
+        gx1 = Math.min(gx1, ab.x); gy1 = Math.min(gy1, ab.y);
+        gx2 = Math.max(gx2, ab.x + ab.w); gy2 = Math.max(gy2, ab.y + ab.h);
+      }
+      const pad = 6;
+      const gb = { cx: (gx1+gx2)/2, cy: (gy1+gy2)/2, w: gx2-gx1+pad*2, h: gy2-gy1+pad*2, angle: 0 };
+      rh = this._getRotationHandlePos(gb);
+    }
+    if (rh) this._drawRotAnglePill(rh.x, rh.y, angleDeg);
+  }
+
+  _drawRotAnglePill(hx, hy, deg) {
+    const label = `${deg}°`;
+    const ctx   = this.pctx;
+    ctx.save();
+    ctx.font = 'bold 11px system-ui, sans-serif';
+    const tw  = ctx.measureText(label).width;
+    const pw  = tw + 12, ph = 20, pr = 5;
+    // Position pill to the right of the handle (or flip left near edge)
+    const margin = 8;
+    let px = hx + this.ROT_HANDLE_R + margin;
+    if (px + pw > this.preview.width - 4) px = hx - this.ROT_HANDLE_R - margin - pw;
+    const py = hy - ph / 2;
+    // Pill background
+    ctx.beginPath();
+    ctx.roundRect(px, py, pw, ph, pr);
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.fill();
+    // Label text
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, px + 6, py + ph / 2);
+    ctx.restore();
+  }
+
+  _normalizeAngleDeg(rad) {
+    let deg = Math.round(rad * 180 / Math.PI) % 360;
+    if (deg < 0) deg += 360;
+    return deg;
   }
 
   /** Rotates point (px,py) around center (cx,cy) by angle radians */
@@ -1357,6 +1445,7 @@ class CanvasApp {
         this._drawSelectionOverlay();
         return;
       }
+      if (e.key === 'l' || e.key === 'L') { e.preventDefault(); this._toggleLock(); return; }
       if (e.key === 'c' || e.key === 'C') { e.preventDefault(); this._copySelected(); return; }
       if (e.key === 'd' || e.key === 'D') { e.preventDefault(); this._duplicateSelected(); return; }
       if (e.key === ']' || e.key === '}') { e.preventDefault(); e.shiftKey ? this._bringToFront() : this._bringForward(); return; }
@@ -1371,6 +1460,24 @@ class CanvasApp {
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.tool === 'select' && this.selectedIds.size > 0) {
       e.preventDefault();
       this._deleteSelected();
+      return;
+    }
+
+    if (this.tool === 'select' && this.selectedIds.size > 0 &&
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 1;
+      const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+      const dy = e.key === 'ArrowUp'   ? -step : e.key === 'ArrowDown'  ? step : 0;
+      for (const id of this.selectedIds) {
+        const obj = this._getObjectById(id);
+        if (obj && !obj.locked) this._moveFromBase(obj, this._cloneObject(obj), dx, dy);
+      }
+      this.renderAll();
+      this._drawSelectionOverlay();
+      // Debounce saveSnap so holding a key doesn't flood history
+      clearTimeout(this._nudgeSnapTimer);
+      this._nudgeSnapTimer = setTimeout(() => this.saveSnap(), 400);
       return;
     }
 
@@ -2448,7 +2555,13 @@ class CanvasApp {
 
   _deleteSelected() {
     if (this.selectedIds.size === 0) return;
-    this.objects = this.objects.filter(obj => !this.selectedIds.has(obj.id));
+    // Never delete locked objects
+    this.objects = this.objects.filter(obj => !this.selectedIds.has(obj.id) || obj.locked);
+    // Remove locked ids from selection so the set stays consistent
+    for (const id of [...this.selectedIds]) {
+      const o = this._getObjectById(id);
+      if (!o) this.selectedIds.delete(id);
+    }
     this._setSelection(null);
     this.renderAll();
     this.saveSnap();
@@ -2614,6 +2727,18 @@ class CanvasApp {
     const [id] = this.selectedIds;
     const obj = this._getObjectById(id);
     if (!obj) return;
+
+    // If locked, read values into controls but disable all editing inputs
+    const locked = !!obj.locked;
+    const editIds = ['colorPicker','sizeRange','opacityRange','cornerRoundingRange','sidesRange','fillToggle'];
+    editIds.forEach(eid => {
+      const el = document.getElementById(eid);
+      if (el) el.disabled = locked;
+    });
+    // Also grey the color preview click-through label
+    const colorBtn = document.querySelector('.cv-color-btn');
+    if (colorBtn) colorBtn.style.pointerEvents = locked ? 'none' : '';
+
     // Use first child as representative for groups
     const rep = ((obj.type || obj.tool) === 'group' && obj.children.length > 0)
       ? obj.children[0] : obj;
@@ -2657,26 +2782,60 @@ class CanvasApp {
     const groupBtn   = document.getElementById('groupBtn');
     const ungroupBtn = document.getElementById('ungroupBtn');
     if (!groupBtn || !ungroupBtn) return;
-    groupBtn.disabled   = this.selectedIds.size < 2;
+    // Check if entire selection is locked
+    const allLocked = this.selectedIds.size > 0 && [...this.selectedIds].every(id => {
+      const o = this._getObjectById(id); return o && o.locked;
+    });
+    // Re-enable editing controls whenever selection is unlocked or cleared
+    if (!allLocked) {
+      ['colorPicker','sizeRange','opacityRange','cornerRoundingRange','sidesRange','fillToggle'].forEach(eid => {
+        const el = document.getElementById(eid);
+        if (el) el.disabled = false;
+      });
+      const colorBtn = document.querySelector('.cv-color-btn');
+      if (colorBtn) colorBtn.style.pointerEvents = '';
+    }
+    groupBtn.disabled   = allLocked || this.selectedIds.size < 2;
     const sole = this.selectedIds.size === 1
       ? this._getObjectById([...this.selectedIds][0]) : null;
-    ungroupBtn.disabled = !(sole && (sole.type || sole.tool) === 'group');
+    ungroupBtn.disabled = allLocked || !(sole && (sole.type || sole.tool) === 'group');
     this._updateLayerUI();
   }
 
   _updateLayerUI() {
     const has = this.selectedIds.size > 0;
+    const allLocked = has && [...this.selectedIds].every(id => {
+      const o = this._getObjectById(id); return o && o.locked;
+    });
     const trigger  = document.getElementById('layerTrigger');
     const frontBtn = document.getElementById('bringFrontBtn');
     const fwdBtn   = document.getElementById('bringForwardBtn');
     const bwdBtn   = document.getElementById('sendBackwardBtn');
     const backBtn  = document.getElementById('sendBackBtn');
     if (!frontBtn) return;
-    if (trigger)   trigger.disabled   = !has;
-    frontBtn.disabled = !has;
-    fwdBtn.disabled   = !has;
-    bwdBtn.disabled   = !has;
-    backBtn.disabled  = !has;
+    if (trigger)   trigger.disabled   = !has || allLocked;
+    frontBtn.disabled = !has || allLocked;
+    fwdBtn.disabled   = !has || allLocked;
+    bwdBtn.disabled   = !has || allLocked;
+    backBtn.disabled  = !has || allLocked;
+    // Copy / Duplicate
+    const copyBtn = document.getElementById('copyBtn');
+    const dupBtn  = document.getElementById('duplicateBtn');
+    if (copyBtn) copyBtn.disabled = !has || allLocked;
+    if (dupBtn)  dupBtn.disabled  = !has || allLocked;
+    // Lock button — always enabled when something selected
+    const lockBtn = document.getElementById('lockBtn');
+    if (!lockBtn) return;
+    lockBtn.disabled = !has;
+    if (has) {
+      lockBtn.classList.toggle('active', allLocked);
+      lockBtn.title = allLocked ? 'Unlock  Ctrl+L' : 'Lock  Ctrl+L';
+      lockBtn.querySelector('i').className = allLocked ? 'fa-solid fa-lock-open' : 'fa-solid fa-lock';
+    } else {
+      lockBtn.classList.remove('active');
+      lockBtn.title = 'Lock / Unlock  Ctrl+L';
+      lockBtn.querySelector('i').className = 'fa-solid fa-lock';
+    }
   }
 
   rgba(hex, a) {
@@ -2695,6 +2854,24 @@ class CanvasApp {
   // Returns the lowest index among all selected objects
   _bottomSelectedIdx() {
     return Math.min(...[...this.selectedIds].map(id => this.objects.findIndex(o => o.id === id)));
+  }
+
+  /* ── Lock / Unlock ──────────────────────────────────────── */
+
+  _toggleLock() {
+    if (this.selectedIds.size === 0) return;
+    const allLocked = [...this.selectedIds].every(id => {
+      const o = this._getObjectById(id); return o && o.locked;
+    });
+    for (const id of this.selectedIds) {
+      const o = this._getObjectById(id);
+      if (o) o.locked = !allLocked;
+    }
+    // Deselect everything if we just locked them (can't act on locked objects)
+    if (!allLocked) this._setSelection(null);
+    this.renderAll();
+    this._drawSelectionOverlay();
+    this.saveSnap();
   }
 
   _bringToFront() {
