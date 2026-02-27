@@ -83,6 +83,11 @@ class CanvasApp {
     this.cropBounds    = null;  // max allowed rect (original image bounds)
     this.cropOrigImg   = null;  // HTMLImageElement of original pre-crop image
 
+    // Design preset (logical page dimensions)
+    this.designW    = null;  // logical page width  (null = free/viewport)
+    this.designH    = null;  // logical page height
+    this.designName = 'Whiteboard';
+
     // Canvas elements
     this.main    = document.getElementById('mainCanvas');
     this.ctx     = this.main.getContext('2d');
@@ -121,6 +126,7 @@ class CanvasApp {
     this.buildPalette();
     this.bindUI();
     this.bindCanvas();
+    this._bindResizeHandle();
     this.saveSnap();               // snapshot of blank canvas
     this._initPages();             // set up page strip after first snap
     document.addEventListener('paste', e => this._handleExternalPaste(e));
@@ -336,6 +342,60 @@ class CanvasApp {
     document.getElementById('flipHBtn').addEventListener('click', () => this._flipSelected('h'));
     document.getElementById('flipVBtn').addEventListener('click', () => this._flipSelected('v'));
     this._bindFlyout('flipFlyout');
+
+    // Canvas size flyout
+    this._bindFlyout('canvasSizeFlyout');
+
+    // Canvas size preset buttons
+    document.querySelectorAll('#canvasSizeFlyout .cv-size-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const name = btn.dataset.presetName;
+        const w    = btn.dataset.w;
+        const h    = btn.dataset.h;
+        document.getElementById('canvasSizeFlyout').querySelector('.cv-flyout-menu').classList.remove('open');
+
+        if (w === 'custom') {
+          // Show custom size dialog
+          const ov = document.getElementById('cvCustomSizeOverlay');
+          if (ov) {
+            document.getElementById('cvCustomW').value = this.designW || '';
+            document.getElementById('cvCustomH').value = this.designH || '';
+            ov.style.display = 'flex';
+            setTimeout(() => document.getElementById('cvCustomW').focus(), 50);
+          }
+          return;
+        }
+
+        const pw = parseInt(w, 10) || null;
+        const ph = parseInt(h, 10) || null;
+        this._applyCanvasPreset(name, pw, ph);
+        document.querySelectorAll('#canvasSizeFlyout .cv-size-item').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    // Custom size dialog buttons
+    const _closeCustomDlg = () => { document.getElementById('cvCustomSizeOverlay').style.display = 'none'; };
+    document.getElementById('cvCustomSizeCancel').addEventListener('click', _closeCustomDlg);
+    document.getElementById('cvCustomSizeOverlay').addEventListener('click', e => {
+      if (e.target === e.currentTarget) _closeCustomDlg();
+    });
+    document.getElementById('cvCustomSizeApply').addEventListener('click', () => {
+      const w = parseInt(document.getElementById('cvCustomW').value, 10);
+      const h = parseInt(document.getElementById('cvCustomH').value, 10);
+      if (!w || !h || w < 1 || h < 1) return;
+      _closeCustomDlg();
+      this._applyCanvasPreset(`Custom (${w}×${h})`, w, h);
+      document.querySelectorAll('#canvasSizeFlyout .cv-size-item').forEach(b => b.classList.remove('active'));
+      document.querySelector('#canvasSizeFlyout .cv-size-custom').classList.add('active');
+    });
+    // Enter key submits the dialog
+    ['cvCustomW','cvCustomH'].forEach(id => {
+      document.getElementById(id).addEventListener('keydown', e => {
+        if (e.key === 'Enter') document.getElementById('cvCustomSizeApply').click();
+        if (e.key === 'Escape') _closeCustomDlg();
+      });
+    });
 
     // Layer order
     document.getElementById('bringFrontBtn').addEventListener('click',   () => this._bringToFront());
@@ -1716,6 +1776,143 @@ class CanvasApp {
     menu.addEventListener('mouseleave', hide);
   }
 
+  /* ── Canvas preset sizing ──────────────────────────────── */
+
+  _getPageFrame() {
+    if (!this.designW || !this.designH) return null;
+    const W = this.main.width, H = this.main.height;
+    const MARGIN = 28;
+    const zoom = Math.min((W - MARGIN * 2) / this.designW, (H - MARGIN * 2) / this.designH);
+    const fw = this.designW * zoom, fh = this.designH * zoom;
+    return { x: (W - fw) / 2, y: (H - fh) / 2, w: fw, h: fh, zoom };
+  }
+
+  _applyCanvasPreset(name, newW, newH) {
+    const oldFrame = this._getPageFrame();
+    const oldX  = oldFrame ? oldFrame.x : 0;
+    const oldY  = oldFrame ? oldFrame.y : 0;
+    const oldFW = oldFrame ? oldFrame.w : this.main.width;
+    const oldFH = oldFrame ? oldFrame.h : this.main.height;
+
+    this.designW    = newW;
+    this.designH    = newH;
+    this.designName = name;
+
+    const lbl = document.getElementById('canvasSizeLabel');
+    if (lbl) lbl.textContent = name;
+
+    if (!newW || !newH) {
+      // Revert to free mode: scale objects back so they fill the viewport
+      const sx = this.main.width  / oldFW;
+      const sy = this.main.height / oldFH;
+      this._scaleAllObjects(this.objects, sx, sy, oldX, oldY, 0, 0);
+      this.wrap.classList.remove('cv-preset-mode');
+      this.renderAll(); this.saveSnap();
+      return;
+    }
+
+    const newFrame = this._getPageFrame();
+    const sx = newFrame.w / oldFW;
+    const sy = newFrame.h / oldFH;
+    this._scaleAllObjects(this.objects, sx, sy, oldX, oldY, newFrame.x, newFrame.y);
+    this.wrap.classList.add('cv-preset-mode');
+    this.renderAll();
+    this.saveSnap();
+  }
+
+  /* ── Canvas content resize ────────────────────────────── */
+
+  _bindResizeHandle() {
+    const handle = document.getElementById('cvResizeHandle');
+    const tip    = document.getElementById('cvSizeTip');
+    if (!handle) return;
+    let drag = null;
+
+    const onMove = (e) => {
+      if (!drag) return;
+      const sx = Math.max(0.05, (drag.w + e.clientX - drag.mx) / drag.w);
+      const sy = Math.max(0.05, (drag.h + e.clientY - drag.my) / drag.h);
+      this._renderAllScaled(sx, sy, drag.w, drag.h);
+      if (tip) {
+        tip.style.display = 'block';
+        tip.style.left    = (e.clientX + 14) + 'px';
+        tip.style.top     = (e.clientY + 10) + 'px';
+        tip.textContent   = `${Math.round(drag.w * sx)} × ${Math.round(drag.h * sy)}`;
+      }
+    };
+
+    const onUp = (e) => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+      if (!drag) return;
+      const sx = Math.max(0.05, (drag.w + e.clientX - drag.mx) / drag.w);
+      const sy = Math.max(0.05, (drag.h + e.clientY - drag.my) / drag.h);
+      this._scaleAllObjects(this.objects, sx, sy);
+      this.renderAll();
+      this.saveSnap();
+      if (tip) tip.style.display = 'none';
+      drag = null;
+    };
+
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      drag = { mx: e.clientX, my: e.clientY,
+               w: this.main.width, h: this.main.height };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup',   onUp);
+    });
+  }
+
+  _renderAllScaled(sx, sy, origW, origH) {
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, this.main.width, this.main.height);
+    ctx.save();
+    ctx.scale(sx, sy);
+    if (this.bgVisible) {
+      ctx.fillStyle = this.bgColor;
+      ctx.fillRect(0, 0, origW, origH);
+    }
+    this.objects.forEach(obj => this._drawObject(ctx, obj));
+    ctx.restore();
+  }
+
+  _scaleAllObjects(objects, sx, sy, fromX = 0, fromY = 0, toX = 0, toY = 0) {
+    const ss = (sx + sy) / 2; // uniform scale for sizes / font
+    for (const obj of objects) {
+      const t = obj.type || obj.tool;
+      if (t === 'group') {
+        this._scaleAllObjects(obj.children, sx, sy, fromX, fromY, toX, toY);
+        continue;
+      }
+      if (obj.x    != null) {
+        obj.x = (obj.x - fromX) * sx + toX;
+        obj.y = (obj.y - fromY) * sy + toY;
+      }
+      if (obj.x1   != null) {
+        obj.x1 = (obj.x1 - fromX) * sx + toX;
+        obj.y1 = (obj.y1 - fromY) * sy + toY;
+        obj.x2 = (obj.x2 - fromX) * sx + toX;
+        obj.y2 = (obj.y2 - fromY) * sy + toY;
+      }
+      if (obj.w    != null) { obj.w  *= sx; obj.h  *= sy; }
+      if (obj.size     != null) obj.size     = Math.max(1, obj.size * ss);
+      if (obj.fontSize != null) obj.fontSize = Math.max(6, obj.fontSize * ss);
+      if (t === 'stroke' && Array.isArray(obj.points)) {
+        obj.points = obj.points.map(p => ({
+          x: (p.x - fromX) * sx + toX,
+          y: (p.y - fromY) * sy + toY
+        }));
+      }
+      // Keep crop original metadata in sync
+      if (obj._origX != null) {
+        obj._origX  = (obj._origX - fromX) * sx + toX;
+        obj._origY  = (obj._origY - fromY) * sy + toY;
+        obj._origW *= sx; obj._origH *= sy;
+      }
+    }
+  }
+
   /* ── Object model helpers ─────────────────────────────── */
 
   _commitFreehandStroke(x, y) {
@@ -1782,14 +1979,50 @@ class CanvasApp {
   }
 
   renderAll() {
-    this.ctx.clearRect(0, 0, this.main.width, this.main.height);
-    if (this.bgVisible) {
-      this.ctx.save();
-      this.ctx.fillStyle = this.bgColor;
-      this.ctx.fillRect(0, 0, this.main.width, this.main.height);
-      this.ctx.restore();
+    const ctx = this.ctx;
+    const W = this.main.width, H = this.main.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const frame = this._getPageFrame();
+
+    if (frame) {
+      // Workspace background (dark surround)
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, W, H);
+
+      // Page shadow
+      ctx.save();
+      ctx.shadowColor    = 'rgba(0,0,0,0.65)';
+      ctx.shadowBlur     = 24;
+      ctx.shadowOffsetX  = 2;
+      ctx.shadowOffsetY  = 4;
+      ctx.fillStyle      = this.bgVisible ? this.bgColor : '#ffffff';
+      ctx.fillRect(frame.x, frame.y, frame.w, frame.h);
+      ctx.restore();
+
+      // Objects (clipped to page)
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(frame.x, frame.y, frame.w, frame.h);
+      ctx.clip();
+      this.objects.forEach(obj => this._drawObject(ctx, obj));
+      ctx.restore();
+
+      // Page border
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth   = 1;
+      ctx.strokeRect(frame.x + 0.5, frame.y + 0.5, frame.w, frame.h);
+      ctx.restore();
+    } else {
+      if (this.bgVisible) {
+        ctx.save();
+        ctx.fillStyle = this.bgColor;
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      }
+      this.objects.forEach(obj => this._drawObject(ctx, obj));
     }
-    this.objects.forEach(obj => this._drawObject(this.ctx, obj));
   }
 
   _renderWithOverlay() {
@@ -3787,7 +4020,10 @@ class CanvasApp {
       history:    this.history.map(s => this._cloneObjects(s)),
       historyPtr: this.historyPtr,
       bgColor:    this.bgColor,
-      bgVisible:  this.bgVisible
+      bgVisible:  this.bgVisible,
+      designW:    this.designW,
+      designH:    this.designH,
+      designName: this.designName
     }];
     this.currentPageIdx = 0;
     this._rebuildPageStrip();
@@ -3800,6 +4036,9 @@ class CanvasApp {
     this.pages[idx].historyPtr = this.historyPtr;
     this.pages[idx].bgColor    = this.bgColor;
     this.pages[idx].bgVisible  = this.bgVisible;
+    this.pages[idx].designW    = this.designW;
+    this.pages[idx].designH    = this.designH;
+    this.pages[idx].designName = this.designName;
   }
 
   _loadPage(idx) {
@@ -3809,6 +4048,17 @@ class CanvasApp {
     this.historyPtr = p.historyPtr;
     this.bgColor    = p.bgColor;
     this.bgVisible  = p.bgVisible;
+    this.designW    = p.designW    ?? null;
+    this.designH    = p.designH    ?? null;
+    this.designName = p.designName ?? 'Whiteboard';
+    // Update toolbar label
+    const lbl = document.getElementById('canvasSizeLabel');
+    if (lbl) lbl.textContent = this.designName;
+    // Update active preset button
+    document.querySelectorAll('#canvasSizeFlyout .cv-size-item').forEach(b => {
+      b.classList.toggle('active', b.dataset.presetName === this.designName);
+    });
+    this.wrap.classList.toggle('cv-preset-mode', !!(this.designW && this.designH));
   }
 
   _switchPage(idx) {
@@ -3839,7 +4089,10 @@ class CanvasApp {
       history:    [[]],
       historyPtr: 0,
       bgColor:    '#252525',
-      bgVisible:  true
+      bgVisible:  true,
+      designW:    null,
+      designH:    null,
+      designName: 'Whiteboard'
     });
     this.currentPageIdx = this.pages.length - 1;
     this._loadPage(this.currentPageIdx);
@@ -3863,7 +4116,10 @@ class CanvasApp {
       history:    this.pages[idx].history.map(s => this._cloneObjects(s)),
       historyPtr: this.pages[idx].historyPtr,
       bgColor:    this.pages[idx].bgColor,
-      bgVisible:  this.pages[idx].bgVisible
+      bgVisible:  this.pages[idx].bgVisible,
+      designW:    this.pages[idx].designW    ?? null,
+      designH:    this.pages[idx].designH    ?? null,
+      designName: this.pages[idx].designName ?? 'Whiteboard'
     };
     const pageNum = idx + 1;
     this.pages.splice(idx, 1);

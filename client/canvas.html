@@ -224,6 +224,47 @@
 
       <div class="cv-spacer"></div>
 
+      <!-- Canvas size presets -->
+      <div class="cv-flyout" id="canvasSizeFlyout">
+        <button class="cv-tool cv-size-trigger" id="canvasSizeTrigger" title="Canvas size preset">
+          <i class="fa-solid fa-ruler-combined"></i>
+          <span id="canvasSizeLabel">Whiteboard</span>
+        </button>
+        <div class="cv-flyout-menu cv-size-menu">
+          <button class="cv-size-item active" data-preset-name="Whiteboard" data-w="0" data-h="0">
+            <span class="cv-size-thumb cv-size-thumb-free"><i class="fa-solid fa-chalkboard"></i></span>
+            <span class="cv-size-info"><b>Whiteboard</b><small>Fill workspace</small></span>
+          </button>
+          <div class="cv-size-divider"></div>
+          <div class="cv-size-section-lbl">Presets</div>
+          <button class="cv-size-item" data-preset-name="Phone Wallpaper"  data-w="1080" data-h="1920">
+            <span class="cv-size-thumb" style="aspect-ratio:9/16"></span>
+            <span class="cv-size-info"><b>Phone Wallpaper</b><small>1080 × 1920 px</small></span>
+          </button>
+          <button class="cv-size-item" data-preset-name="Desktop Wallpaper" data-w="1920" data-h="1080">
+            <span class="cv-size-thumb" style="aspect-ratio:16/9"></span>
+            <span class="cv-size-info"><b>Desktop Wallpaper</b><small>1920 × 1080 px</small></span>
+          </button>
+          <button class="cv-size-item" data-preset-name="Instagram Post"    data-w="1080" data-h="1350">
+            <span class="cv-size-thumb" style="aspect-ratio:4/5"></span>
+            <span class="cv-size-info"><b>Instagram Post</b><small>1080 × 1350 px</small></span>
+          </button>
+          <button class="cv-size-item" data-preset-name="Facebook Post"     data-w="940"  data-h="788">
+            <span class="cv-size-thumb" style="aspect-ratio:940/788"></span>
+            <span class="cv-size-info"><b>Facebook Post</b><small>940 × 788 px</small></span>
+          </button>
+          <button class="cv-size-item" data-preset-name="Facebook Cover"    data-w="851"  data-h="315">
+            <span class="cv-size-thumb" style="aspect-ratio:851/315"></span>
+            <span class="cv-size-info"><b>Facebook Cover</b><small>851 × 315 px</small></span>
+          </button>
+          <div class="cv-size-divider"></div>
+          <button class="cv-size-item cv-size-custom" data-preset-name="Custom" data-w="custom" data-h="custom">
+            <span class="cv-size-thumb cv-size-thumb-free"><i class="fa-solid fa-expand"></i></span>
+            <span class="cv-size-info"><b>Custom</b><small>Enter dimensions</small></span>
+          </button>
+        </div>
+      </div>
+
       <button class="cv-tool cv-close-btn" id="closeBtn" title="Close canvas">
         <i class="fa-solid fa-xmark"></i>
       </button>
@@ -237,6 +278,8 @@
       <div id="textOverlay" class="cv-text-overlay">
         <textarea id="textInput" class="cv-text-input" rows="2" placeholder="Type…"></textarea>
       </div>
+      <!-- Canvas resize grip -->
+      <div id="cvResizeHandle" class="cv-resize-handle" title="Drag to resize canvas"></div>
     </div>
 
     <!-- ── Page strip ────────────────────────────────────── -->
@@ -249,6 +292,40 @@
       </button>
     </div>
 
+  </div>
+
+  <!-- ── Canvas size tooltip ─────────────────────── -->
+  <div id="cvSizeTip" class="cv-size-tip"></div>
+
+  <!-- ── Custom canvas size dialog ───────────────── -->
+  <div id="cvCustomSizeOverlay" class="cv-bgrm-overlay" style="display:none">
+    <div class="cv-bgrm-box cv-custom-size-box">
+      <div class="cv-bgrm-header">
+        <i class="fa-solid fa-ruler-combined"></i>
+        <span>Custom Canvas Size</span>
+      </div>
+      <div class="cv-custom-size-fields">
+        <label class="cv-custom-size-label">
+          <span>Width</span>
+          <div class="cv-custom-size-input-wrap">
+            <input id="cvCustomW" class="cv-custom-size-input" type="number" min="1" max="9999" placeholder="1080">
+            <span class="cv-custom-size-unit">px</span>
+          </div>
+        </label>
+        <span class="cv-custom-size-times">×</span>
+        <label class="cv-custom-size-label">
+          <span>Height</span>
+          <div class="cv-custom-size-input-wrap">
+            <input id="cvCustomH" class="cv-custom-size-input" type="number" min="1" max="9999" placeholder="1080">
+            <span class="cv-custom-size-unit">px</span>
+          </div>
+        </label>
+      </div>
+      <div class="cv-custom-size-actions">
+        <button id="cvCustomSizeCancel" class="cv-crop-btn cv-crop-cancel">Cancel</button>
+        <button id="cvCustomSizeApply"  class="cv-crop-btn cv-crop-apply">Apply</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── Crop confirm bar ──────────────────────────────── -->
