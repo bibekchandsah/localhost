@@ -117,6 +117,47 @@ body {
   display: flex;
 }
 
+/* Layer menu — wide rows with icon + name + shortcut */
+.cv-flyout-menu.cv-layer-menu {
+  display: none;
+  min-width: 200px;
+}
+.cv-flyout-menu.cv-layer-menu.open {
+  display: flex;
+}
+.cv-layer-item {
+  width: 100% !important;
+  height: 30px !important;
+  justify-content: flex-start !important;
+  gap: 8px;
+  padding: 0 8px !important;
+  border-radius: var(--r) !important;
+}
+.cv-layer-item i {
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.cv-layer-name {
+  flex: 1;
+  text-align: left;
+  font-size: 12px;
+  color: var(--txt);
+}
+.cv-layer-item:disabled .cv-layer-name {
+  color: var(--txt2);
+}
+.cv-layer-item kbd {
+  font-size: 10px;
+  color: var(--txt2);
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--tb-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
 /* small indicator arrow on trigger */
 .cv-flyout #brushTrigger,
 .cv-flyout #shapeTrigger {
@@ -483,4 +524,59 @@ body {
 .cv-page-add:hover {
   border-color: var(--acc);
   color: var(--acc);
+}
+
+/* ── Page-deleted undo toast ─────────────────────────────── */
+.cv-undo-toast {
+  position: fixed;
+  bottom: 84px; /* sit above the 74px pages bar */
+  left: 50%;
+  transform: translateX(-50%) translateY(16px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--tb);
+  border: 1px solid var(--tb-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  font-size: 13px;
+  color: var(--txt);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 9999;
+  min-width: 220px;
+  overflow: hidden;
+}
+.cv-undo-toast.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+.cv-undo-toast-msg {
+  flex: 1;
+  white-space: nowrap;
+}
+.cv-undo-toast-btn {
+  background: var(--acc);
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+.cv-undo-toast-btn:hover { opacity: 0.85; }
+.cv-undo-toast-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--acc);
+  border-radius: 0 0 8px 8px;
+  transform-origin: left;
 }

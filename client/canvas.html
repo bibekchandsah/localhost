@@ -99,6 +99,21 @@
 
       <div class="cv-div"></div>
 
+      <!-- Layer order flyout -->
+      <div class="cv-flyout" id="layerFlyout">
+        <button class="cv-tool" id="layerTrigger" title="Layer order" disabled>
+          <i class="fa-solid fa-layer-group"></i>
+        </button>
+        <div class="cv-flyout-menu cv-layer-menu">
+          <button class="cv-tool cv-layer-item" id="bringFrontBtn"   title="Bring to Front  Ctrl+Shift+]"><i class="fa-solid fa-angles-up"></i><span class="cv-layer-name">Bring to Front</span><kbd>Ctrl+Shift+]</kbd></button>
+          <button class="cv-tool cv-layer-item" id="bringForwardBtn" title="Bring Forward  Ctrl+]"><i class="fa-solid fa-angle-up"></i><span class="cv-layer-name">Bring Forward</span><kbd>Ctrl+]</kbd></button>
+          <button class="cv-tool cv-layer-item" id="sendBackwardBtn" title="Send Backward  Ctrl+["><i class="fa-solid fa-angle-down"></i><span class="cv-layer-name">Send Backward</span><kbd>Ctrl+[</kbd></button>
+          <button class="cv-tool cv-layer-item" id="sendBackBtn"     title="Send to Back  Ctrl+Shift+["><i class="fa-solid fa-angles-down"></i><span class="cv-layer-name">Send to Back</span><kbd>Ctrl+Shift+[</kbd></button>
+        </div>
+      </div>
+
+      <div class="cv-div"></div>
+
       <!-- Group / Ungroup -->
       <div class="cv-group">
         <button class="cv-tool" id="groupBtn"   title="Group selected  Ctrl+G"         disabled><i class="fa-solid fa-object-group"></i></button>
@@ -208,6 +223,14 @@
     </div>
 
   </div>
+
+  <!-- ── Page-deleted undo toast ───────────────────────── -->
+  <div id="cvUndoToast" class="cv-undo-toast">
+    <span class="cv-undo-toast-msg"></span>
+    <button class="cv-undo-toast-btn">Undo</button>
+    <div class="cv-undo-toast-bar"></div>
+  </div>
+
   <script src="canvas.js"></script>
 </body>
 </html>

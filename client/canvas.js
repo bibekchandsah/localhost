@@ -123,6 +123,16 @@ class CanvasApp {
     window.addEventListener('message', e => {
       if (e.data === 'canvas-resize') this.resize();
     });
+    // Warn before the tab is closed or refreshed if any page has content
+    window.addEventListener('beforeunload', e => {
+      // Save live state into current page slot so the check is accurate
+      this._savePage(this.currentPageIdx);
+      const hasContent = this.pages.some(p => p.objects.length > 0);
+      if (hasContent) {
+        e.preventDefault();
+        e.returnValue = ''; // required for Chrome to show the dialog
+      }
+    });
   }
 
   resize() {
@@ -299,6 +309,15 @@ class CanvasApp {
     document.getElementById('copyBtn').addEventListener('click',      () => this._copySelected());
     document.getElementById('pasteBtn').addEventListener('click',     () => this._pasteClipboard());
     document.getElementById('duplicateBtn').addEventListener('click', () => this._duplicateSelected());
+
+    // Layer order
+    document.getElementById('bringFrontBtn').addEventListener('click',   () => this._bringToFront());
+    document.getElementById('bringForwardBtn').addEventListener('click', () => this._bringForward());
+    document.getElementById('sendBackwardBtn').addEventListener('click', () => this._sendBackward());
+    document.getElementById('sendBackBtn').addEventListener('click',     () => this._sendToBack());
+
+    // Layer flyout
+    this._bindFlyout('layerFlyout');
 
     // Group / Ungroup
     document.getElementById('groupBtn').addEventListener('click',   () => this._groupSelected());
@@ -1340,6 +1359,8 @@ class CanvasApp {
       }
       if (e.key === 'c' || e.key === 'C') { e.preventDefault(); this._copySelected(); return; }
       if (e.key === 'd' || e.key === 'D') { e.preventDefault(); this._duplicateSelected(); return; }
+      if (e.key === ']' || e.key === '}') { e.preventDefault(); e.shiftKey ? this._bringToFront() : this._bringForward(); return; }
+      if (e.key === '[' || e.key === '{') { e.preventDefault(); e.shiftKey ? this._sendToBack()   : this._sendBackward();  return; }
       // Ctrl+V: handled entirely via the 'paste' DOM event (see _handleExternalPaste).
       // Do NOT preventDefault here — that would suppress the paste event in Chromium.
       return;
@@ -2640,6 +2661,22 @@ class CanvasApp {
     const sole = this.selectedIds.size === 1
       ? this._getObjectById([...this.selectedIds][0]) : null;
     ungroupBtn.disabled = !(sole && (sole.type || sole.tool) === 'group');
+    this._updateLayerUI();
+  }
+
+  _updateLayerUI() {
+    const has = this.selectedIds.size > 0;
+    const trigger  = document.getElementById('layerTrigger');
+    const frontBtn = document.getElementById('bringFrontBtn');
+    const fwdBtn   = document.getElementById('bringForwardBtn');
+    const bwdBtn   = document.getElementById('sendBackwardBtn');
+    const backBtn  = document.getElementById('sendBackBtn');
+    if (!frontBtn) return;
+    if (trigger)   trigger.disabled   = !has;
+    frontBtn.disabled = !has;
+    fwdBtn.disabled   = !has;
+    bwdBtn.disabled   = !has;
+    backBtn.disabled  = !has;
   }
 
   rgba(hex, a) {
@@ -2647,6 +2684,63 @@ class CanvasApp {
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
     return `rgba(${r},${g},${b},${a})`;
+  }
+
+  /* ── Layer order ────────────────────────────────────────── */
+
+  // Returns the highest index among all selected objects
+  _topSelectedIdx() {
+    return Math.max(...[...this.selectedIds].map(id => this.objects.findIndex(o => o.id === id)));
+  }
+  // Returns the lowest index among all selected objects
+  _bottomSelectedIdx() {
+    return Math.min(...[...this.selectedIds].map(id => this.objects.findIndex(o => o.id === id)));
+  }
+
+  _bringToFront() {
+    if (this.selectedIds.size === 0) return;
+    const chosen = this.objects.filter(o => this.selectedIds.has(o.id));
+    this.objects  = this.objects.filter(o => !this.selectedIds.has(o.id));
+    this.objects.push(...chosen);
+    this.renderAll(); this._drawSelectionOverlay(); this.saveSnap();
+  }
+
+  _sendToBack() {
+    if (this.selectedIds.size === 0) return;
+    const chosen = this.objects.filter(o => this.selectedIds.has(o.id));
+    this.objects  = this.objects.filter(o => !this.selectedIds.has(o.id));
+    this.objects.unshift(...chosen);
+    this.renderAll(); this._drawSelectionOverlay(); this.saveSnap();
+  }
+
+  _bringForward() {
+    if (this.selectedIds.size === 0) return;
+    // Move each selected object one step toward the end, working from the top down
+    const indices = [...this.selectedIds]
+      .map(id => this.objects.findIndex(o => o.id === id))
+      .filter(i => i !== -1)
+      .sort((a, b) => b - a); // process top-first so they don't block each other
+    for (const idx of indices) {
+      if (idx < this.objects.length - 1 && !this.selectedIds.has(this.objects[idx + 1].id)) {
+        [this.objects[idx], this.objects[idx + 1]] = [this.objects[idx + 1], this.objects[idx]];
+      }
+    }
+    this.renderAll(); this._drawSelectionOverlay(); this.saveSnap();
+  }
+
+  _sendBackward() {
+    if (this.selectedIds.size === 0) return;
+    // Move each selected object one step toward the start, working from the bottom up
+    const indices = [...this.selectedIds]
+      .map(id => this.objects.findIndex(o => o.id === id))
+      .filter(i => i !== -1)
+      .sort((a, b) => a - b); // process bottom-first
+    for (const idx of indices) {
+      if (idx > 0 && !this.selectedIds.has(this.objects[idx - 1].id)) {
+        [this.objects[idx], this.objects[idx - 1]] = [this.objects[idx - 1], this.objects[idx]];
+      }
+    }
+    this.renderAll(); this._drawSelectionOverlay(); this.saveSnap();
   }
 
   /* ── Clipboard copy / paste ──────────────────────────────── */
@@ -2904,7 +2998,16 @@ class CanvasApp {
 
   _deletePage(idx) {
     if (this.pages.length <= 1) return;
-    if (!confirm(`Delete Page ${idx + 1}?`)) return;
+    // Flush live state so the snapshot captures the latest objects
+    if (idx === this.currentPageIdx) this._savePage(idx);
+    const snapshot = {
+      objects:    this._cloneObjects(this.pages[idx].objects),
+      history:    this.pages[idx].history.map(s => this._cloneObjects(s)),
+      historyPtr: this.pages[idx].historyPtr,
+      bgColor:    this.pages[idx].bgColor,
+      bgVisible:  this.pages[idx].bgVisible
+    };
+    const pageNum = idx + 1;
     this.pages.splice(idx, 1);
     let newIdx = this.currentPageIdx;
     if (newIdx >= idx && newIdx > 0) newIdx--;
@@ -2916,6 +3019,50 @@ class CanvasApp {
     this.updateHistoryUI();
     this._syncBgUI();
     this._rebuildPageStrip();
+    this._showPageDeletedToast(snapshot, idx, pageNum);
+  }
+
+  _showPageDeletedToast(snapshot, atIdx, pageNum) {
+    // Cancel any previous pending toast
+    if (this._undoToastTimer) {
+      clearTimeout(this._undoToastTimer);
+      this._undoToastTimer = null;
+    }
+    const toast = document.getElementById('cvUndoToast');
+    toast.querySelector('.cv-undo-toast-msg').textContent = `Page ${pageNum} deleted`;
+
+    // Reset and restart the progress bar animation
+    const bar = toast.querySelector('.cv-undo-toast-bar');
+    bar.style.transition = 'none';
+    bar.style.width = '100%';
+    toast.classList.add('visible');
+    bar.offsetWidth; // force reflow
+    bar.style.transition = 'width 3s linear';
+    bar.style.width = '0%';
+
+    // Re-clone the button to clear any previous click listener
+    const oldBtn = toast.querySelector('.cv-undo-toast-btn');
+    const btn = oldBtn.cloneNode(true);
+    oldBtn.replaceWith(btn);
+    btn.addEventListener('click', () => {
+      clearTimeout(this._undoToastTimer);
+      this._undoToastTimer = null;
+      toast.classList.remove('visible');
+      this._savePage(this.currentPageIdx);
+      this.pages.splice(atIdx, 0, snapshot);
+      this.currentPageIdx = atIdx;
+      this._loadPage(atIdx);
+      this._setSelection(null);
+      this.renderAll();
+      this.updateHistoryUI();
+      this._syncBgUI();
+      this._rebuildPageStrip();
+    });
+
+    this._undoToastTimer = setTimeout(() => {
+      toast.classList.remove('visible');
+      this._undoToastTimer = null;
+    }, 3000);
   }
 
   _rebuildPageStrip() {
