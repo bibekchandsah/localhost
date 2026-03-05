@@ -137,3 +137,4 @@ if (D !== 0) {
 
 fs.writeFileSync(exePath, newPEBuf);
 console.log(`\nDone! -> dist/LocalHost.exe (${(newPEBuf.length / 1024 / 1024).toFixed(1)} MB)`);
+console.log('cloudflared.exe is bundled inside the executable and will be extracted on first tunnel use.');

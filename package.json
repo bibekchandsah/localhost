@@ -10,7 +10,10 @@
     "build": "node scripts/build.js"
   },
   "pkg": {
-    "assets": "client/**/*",
+    "assets": [
+      "client/**/*",
+      "cloudflared.exe"
+    ],
     "targets": [
       "node18-win-x64"
     ]

@@ -364,6 +364,179 @@ app.get('/api/thumbnail', (req, res) => {
     .on('error', (err) => { if (!res.headersSent) res.status(500).json({ error: err.message }); });
 });
 
+// ============ Cloudflare Tunnel API ============
+let cloudflaredProcess = null;
+let tunnelUrl = null;
+let serverPort = null; // Will be set when server starts
+
+/**
+ * Start cloudflared tunnel
+ * POST /api/tunnel/start
+ */
+app.post('/api/tunnel/start', (req, res) => {
+  if (cloudflaredProcess) {
+    return res.json({ success: true, url: tunnelUrl, message: 'Tunnel already running' });
+  }
+
+  if (!serverPort) {
+    return res.status(500).json({ success: false, error: 'Server port not determined yet' });
+  }
+
+  const { spawn } = require('child_process');
+  const fsSync = require('fs');
+  const os = require('os');
+  
+  // Determine cloudflared path - extract from bundled exe if running as packaged
+  let cloudflaredPath = 'cloudflared';
+  
+  if (process.pkg) {
+    // When running as pkg exe, cloudflared.exe is bundled in the snapshot
+    // Extract it to temp directory on first use
+    const tempDir = path.join(os.tmpdir(), 'localhost-media-browser');
+    const extractedPath = path.join(tempDir, 'cloudflared.exe');
+    const snapshotPath = path.join(__dirname, '..', 'cloudflared.exe');
+    
+    try {
+      // Create temp directory if needed
+      if (!fsSync.existsSync(tempDir)) {
+        fsSync.mkdirSync(tempDir, { recursive: true });
+      }
+      
+      // Extract cloudflared.exe from snapshot if not already extracted or outdated
+      if (!fsSync.existsSync(extractedPath)) {
+        console.log('Extracting bundled cloudflared.exe...');
+        const data = fsSync.readFileSync(snapshotPath);
+        fsSync.writeFileSync(extractedPath, data);
+        console.log('Extracted to:', extractedPath);
+      }
+      
+      cloudflaredPath = extractedPath;
+    } catch (e) {
+      console.log('Could not extract bundled cloudflared:', e.message);
+      console.log('Falling back to system PATH');
+    }
+  } else {
+    // Development mode - check project root
+    const devPath = path.join(__dirname, '..', 'cloudflared.exe');
+    if (fsSync.existsSync(devPath)) {
+      cloudflaredPath = devPath;
+    }
+  }
+
+  try {
+    // Start cloudflared with quick-tunnel (no account needed)
+    cloudflaredProcess = spawn(cloudflaredPath, ['tunnel', '--url', `http://localhost:${serverPort}`, '--protocol', 'http2'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: true
+    });
+
+    let urlFound = false;
+    const urlRegex = /https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/;
+
+    const handleOutput = (data) => {
+      const output = data.toString();
+      console.log('[cloudflared]', output);
+      
+      if (!urlFound) {
+        const match = output.match(urlRegex);
+        if (match) {
+          urlFound = true;
+          tunnelUrl = match[0];
+          console.log(`✓ Cloudflare Tunnel ready: ${tunnelUrl}`);
+        }
+      }
+    };
+
+    cloudflaredProcess.stdout.on('data', handleOutput);
+    cloudflaredProcess.stderr.on('data', handleOutput);
+
+    cloudflaredProcess.on('error', (err) => {
+      console.error('cloudflared error:', err.message);
+      cloudflaredProcess = null;
+      tunnelUrl = null;
+    });
+
+    cloudflaredProcess.on('close', (code) => {
+      console.log(`cloudflared exited with code ${code}`);
+      cloudflaredProcess = null;
+      tunnelUrl = null;
+    });
+
+    // Wait for tunnel URL to be available (poll for up to 30 seconds)
+    let attempts = 0;
+    const maxAttempts = 60;
+    const checkUrl = () => {
+      attempts++;
+      if (tunnelUrl) {
+        res.json({ success: true, url: tunnelUrl });
+      } else if (attempts >= maxAttempts) {
+        // Timeout - check if process is still running
+        if (cloudflaredProcess) {
+          res.status(500).json({ 
+            success: false, 
+            error: 'Timeout waiting for tunnel URL. Make sure cloudflared is installed.' 
+          });
+        } else {
+          res.status(500).json({ 
+            success: false, 
+            error: 'cloudflared process failed to start. Make sure it is installed and in PATH.' 
+          });
+        }
+      } else {
+        setTimeout(checkUrl, 500);
+      }
+    };
+    checkUrl();
+
+  } catch (err) {
+    cloudflaredProcess = null;
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to start cloudflared: ' + err.message 
+    });
+  }
+});
+
+/**
+ * Stop cloudflared tunnel
+ * POST /api/tunnel/stop
+ */
+app.post('/api/tunnel/stop', (req, res) => {
+  if (cloudflaredProcess) {
+    try {
+      // On Windows, we need to kill the process tree
+      if (process.platform === 'win32') {
+        const { exec } = require('child_process');
+        exec(`taskkill /pid ${cloudflaredProcess.pid} /T /F`, (err) => {
+          cloudflaredProcess = null;
+          tunnelUrl = null;
+          res.json({ success: true, message: 'Tunnel stopped' });
+        });
+      } else {
+        cloudflaredProcess.kill('SIGTERM');
+        cloudflaredProcess = null;
+        tunnelUrl = null;
+        res.json({ success: true, message: 'Tunnel stopped' });
+      }
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  } else {
+    res.json({ success: true, message: 'No tunnel running' });
+  }
+});
+
+/**
+ * Get tunnel status
+ * GET /api/tunnel/status
+ */
+app.get('/api/tunnel/status', (req, res) => {
+  res.json({
+    running: !!cloudflaredProcess,
+    url: tunnelUrl
+  });
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
@@ -386,6 +559,7 @@ function startServer(portsToTry) {
 
   const server = app.listen(port, () => {
     const actualPort = server.address().port;
+    serverPort = actualPort; // Store for cloudflared tunnel
     console.log(`\n🚀 Local Media Browser Server`);
     console.log(`📍 Running on http://localhost:${actualPort}`);
     console.log(`\n📝 Navigate to http://localhost:${actualPort} in your browser`);

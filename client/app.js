@@ -130,7 +130,18 @@ class MediaBrowser {
 
       // Canvas overlay
       canvasOverlay: document.getElementById('canvasOverlay'),
-      canvasFrame: document.getElementById('canvasFrame')
+      canvasFrame: document.getElementById('canvasFrame'),
+
+      // Cloud share
+      cloudShareBtn: document.getElementById('cloudShareBtn'),
+      cloudShareModal: document.getElementById('cloudShareModal'),
+      cloudShareStatus: document.getElementById('cloudShareStatus'),
+      cloudShareLinkContainer: document.getElementById('cloudShareLinkContainer'),
+      cloudShareLink: document.getElementById('cloudShareLink'),
+      copyCloudLinkBtn: document.getElementById('copyCloudLinkBtn'),
+      startTunnelBtn: document.getElementById('startTunnelBtn'),
+      stopTunnelBtn: document.getElementById('stopTunnelBtn'),
+      closeCloudShareBtn: document.getElementById('closeCloudShareBtn')
     };
   }
 
@@ -143,6 +154,16 @@ class MediaBrowser {
     document.getElementById('openUrlBtn').addEventListener('click', () => this.openUrlDialog());
     document.getElementById('confirmUrlBtn').addEventListener('click', () => this.loadUrl());
     document.getElementById('cancelUrlBtn').addEventListener('click', () => this.closeUrlDialog());
+    
+    // Cloud share tunnel
+    this.elements.cloudShareBtn.addEventListener('click', () => this.openCloudShareModal());
+    this.elements.closeCloudShareBtn.addEventListener('click', () => this.closeCloudShareModal());
+    this.elements.startTunnelBtn.addEventListener('click', () => this.startTunnel());
+    this.elements.stopTunnelBtn.addEventListener('click', () => this.stopTunnel());
+    this.elements.copyCloudLinkBtn.addEventListener('click', () => this.copyTunnelLink());
+    this.elements.cloudShareModal.addEventListener('click', (e) => {
+      if (e.target === this.elements.cloudShareModal) this.closeCloudShareModal();
+    });
     document.getElementById('closeUrlInputBtn').addEventListener('click', () => this.closeUrlDialog());
     document.getElementById('closeUrlViewerBtn').addEventListener('click', () => this.closeUrlViewer());
     document.getElementById('urlViewerNewTab').addEventListener('click', () => {
@@ -229,6 +250,7 @@ class MediaBrowser {
 
     // Canvas overlay
     document.getElementById('toolboxCanvasBtn').addEventListener('click', () => { this.openCanvas(); this.closeToolboxMenu(); });
+    document.getElementById('toolboxFullscreenBtn').addEventListener('click', () => { this.toggleFullscreen(); this.closeToolboxMenu(); });
     window.addEventListener('message', (e) => { if (e.data === 'canvas-close') this.closeCanvas(); });
     this.elements.settingThumbnails.addEventListener('change', () => {
       this.settings.thumbnails = this.elements.settingThumbnails.checked;
@@ -1168,6 +1190,126 @@ class MediaBrowser {
     this.elements.urlInputModal.classList.add('hidden');
   }
 
+  // ============ Cloud Share Tunnel ============
+
+  async openCloudShareModal() {
+    this.elements.cloudShareModal.classList.remove('hidden');
+    // Check current tunnel status
+    try {
+      const response = await fetch('/api/tunnel/status');
+      const data = await response.json();
+      if (data.running && data.url) {
+        this.showTunnelRunning(data.url);
+      } else {
+        this.showTunnelStopped();
+      }
+    } catch (err) {
+      this.showTunnelStopped();
+    }
+  }
+
+  closeCloudShareModal() {
+    this.elements.cloudShareModal.classList.add('hidden');
+  }
+
+  showTunnelRunning(url) {
+    this.elements.cloudShareStatus.innerHTML = `
+      <p><i class="fa-solid fa-check-circle" style="color: #4caf50;"></i> Tunnel is running!</p>
+      <p class="cloud-share-note">Anyone with this link can access your media browser.</p>
+    `;
+    this.elements.cloudShareLinkContainer.classList.remove('hidden');
+    this.elements.cloudShareLink.value = url;
+    this.elements.startTunnelBtn.classList.add('hidden');
+    this.elements.stopTunnelBtn.classList.remove('hidden');
+  }
+
+  showTunnelStopped() {
+    this.elements.cloudShareStatus.innerHTML = `
+      <p>Generate a public link to share your media browser with anyone.</p>
+      <p class="cloud-share-note"><i class="fa-solid fa-info-circle"></i> Requires <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank">cloudflared</a> to be installed.</p>
+    `;
+    this.elements.cloudShareLinkContainer.classList.add('hidden');
+    this.elements.cloudShareLink.value = '';
+    this.elements.startTunnelBtn.classList.remove('hidden');
+    this.elements.stopTunnelBtn.classList.add('hidden');
+  }
+
+  async startTunnel() {
+    this.elements.startTunnelBtn.disabled = true;
+    this.elements.startTunnelBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Starting...';
+    this.elements.cloudShareStatus.innerHTML = `
+      <p><i class="fa-solid fa-spinner fa-spin"></i> Starting tunnel... This may take up to 30 seconds.</p>
+      <p class="cloud-share-note">Make sure cloudflared is installed and available in your system PATH.</p>
+    `;
+
+    try {
+      const response = await fetch('/api/tunnel/start', { method: 'POST' });
+      const data = await response.json();
+
+      if (data.success && data.url) {
+        this.showTunnelRunning(data.url);
+        this.showNotification('Tunnel started! Link copied to clipboard.', 'success');
+        // Auto-copy to clipboard
+        this.copyTunnelLink();
+      } else {
+        this.elements.cloudShareStatus.innerHTML = `
+          <p><i class="fa-solid fa-exclamation-triangle" style="color: #f44336;"></i> ${data.error || 'Failed to start tunnel'}</p>
+          <p class="cloud-share-note"><i class="fa-solid fa-info-circle"></i> Make sure <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank">cloudflared</a> is installed and in your PATH.</p>
+        `;
+        this.showTunnelStopped();
+      }
+    } catch (err) {
+      this.elements.cloudShareStatus.innerHTML = `
+        <p><i class="fa-solid fa-exclamation-triangle" style="color: #f44336;"></i> Error: ${err.message}</p>
+      `;
+      this.showTunnelStopped();
+    }
+
+    this.elements.startTunnelBtn.disabled = false;
+    this.elements.startTunnelBtn.innerHTML = '<i class="fa-solid fa-play"></i> Start Tunnel';
+  }
+
+  async stopTunnel() {
+    this.elements.stopTunnelBtn.disabled = true;
+    this.elements.stopTunnelBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Stopping...';
+
+    try {
+      const response = await fetch('/api/tunnel/stop', { method: 'POST' });
+      const data = await response.json();
+
+      if (data.success) {
+        this.showTunnelStopped();
+        this.showNotification('Tunnel stopped', 'success');
+      } else {
+        this.showNotification('Failed to stop tunnel: ' + (data.error || 'Unknown error'), 'error');
+      }
+    } catch (err) {
+      this.showNotification('Error stopping tunnel: ' + err.message, 'error');
+    }
+
+    this.elements.stopTunnelBtn.disabled = false;
+    this.elements.stopTunnelBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop Tunnel';
+  }
+
+  copyTunnelLink() {
+    const url = this.elements.cloudShareLink.value;
+    if (!url) return;
+
+    navigator.clipboard.writeText(url).then(() => {
+      this.showNotification('Link copied to clipboard!', 'success');
+      // Visual feedback
+      this.elements.copyCloudLinkBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+      setTimeout(() => {
+        this.elements.copyCloudLinkBtn.innerHTML = '<i class="fa-solid fa-copy"></i>';
+      }, 2000);
+    }).catch(err => {
+      // Fallback for older browsers
+      this.elements.cloudShareLink.select();
+      document.execCommand('copy');
+      this.showNotification('Link copied!', 'success');
+    });
+  }
+
   extractYouTubeId(input) {
     const patterns = [
       /[?&]v=([a-zA-Z0-9_-]{11})/,
@@ -1365,6 +1507,16 @@ class MediaBrowser {
       if (e.key === 'g' || e.key === 'G') {
         e.preventDefault();
         this.openGlobalSearch();
+        return;
+      }
+      if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault();
+        this.toggleCanvas();
+        return;
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        this.toggleFullscreen();
         return;
       }
     }
@@ -1838,6 +1990,26 @@ class MediaBrowser {
 
   closeCanvas() {
     this.elements.canvasOverlay.classList.remove('cv-open');
+  }
+
+  toggleCanvas() {
+    if (this.elements.canvasOverlay.classList.contains('cv-open')) {
+      this.closeCanvas();
+    } else {
+      this.openCanvas();
+    }
+  }
+
+  // ============ Full Screen ============
+
+  toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        this.showNotification('Could not enter fullscreen: ' + err.message, 'error');
+      });
+    } else {
+      document.exitFullscreen();
+    }
   }
 
   // ============ Settings ============

@@ -1695,7 +1695,8 @@ class CanvasApp {
       l: 'line',   r: 'rect',  c: 'circle', g: 'polygon',
       a: 'arrow',  t: 'text'
     };
-    const tool = toolMap[e.key.toLowerCase()];
+    // Ignore tool shortcuts if Alt is pressed (used for global app shortcuts)
+    const tool = !e.altKey ? toolMap[e.key.toLowerCase()] : null;
     if (tool) { e.preventDefault(); this.selectTool(tool); return; }
 
     if (e.key === 'Escape') { this.commitText(); this._setSelection(null); return; }

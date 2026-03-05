@@ -41,6 +41,7 @@
                 <div class="header-actions">
                     <!-- <button id="sidebarToggleBtn" class="btn-icon" title="Toggle sidebar"><i class="fa-solid fa-bars"></i></button> -->
                     <button id="darkModeBtn" class="btn-icon" title="Toggle dark mode"><i class="fa-solid fa-moon"></i></button>
+                    <button id="cloudShareBtn" class="btn-icon" title="Share via Cloudflare Tunnel"><i class="fa-solid fa-cloud"></i></button>
                     <button id="openUrlBtn" class="btn-icon" title="Open URL"><i class="fa-solid fa-link"></i></button>
                     <button id="setRootBtn" class="btn btn-primary"><i class="fa-solid fa-folder-open"></i> Select Folder</button>
                 </div>
@@ -208,6 +209,34 @@
             </div>
         </div>
 
+        <!-- Cloud Share Modal -->
+        <div id="cloudShareModal" class="modal hidden">
+            <div class="modal-content medium">
+                <div class="cloud-share-header">
+                    <i class="fa-solid fa-cloud" style="color:var(--accent)"></i>
+                    <h2>Share via Cloudflare Tunnel</h2>
+                    <button id="closeCloudShareBtn" class="btn-close">&#x2715;</button>
+                </div>
+                <div class="cloud-share-body">
+                    <div id="cloudShareStatus" class="cloud-share-status">
+                        <p>Generate a public link to share your media browser with anyone.</p>
+                        <p class="cloud-share-note"><i class="fa-solid fa-info-circle"></i> Requires <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank">cloudflared</a> to be installed.</p>
+                    </div>
+                    <div id="cloudShareLinkContainer" class="cloud-share-link-container hidden">
+                        <label>Your public link:</label>
+                        <div class="cloud-share-link-row">
+                            <input type="text" id="cloudShareLink" class="cloud-share-link-input" readonly>
+                            <button id="copyCloudLinkBtn" class="btn btn-secondary" title="Copy link"><i class="fa-solid fa-copy"></i></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button id="startTunnelBtn" class="btn btn-primary"><i class="fa-solid fa-play"></i> Start Tunnel</button>
+                    <button id="stopTunnelBtn" class="btn btn-secondary hidden"><i class="fa-solid fa-stop"></i> Stop Tunnel</button>
+                </div>
+            </div>
+        </div>
+
         <!-- URL Iframe Viewer Modal -->
         <div id="urlViewerModal" class="modal hidden">
             <div class="modal-content url-viewer-content">
@@ -279,13 +308,15 @@
                 <table class="shortcut-table">
                     <tbody>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>?</kbd></td><td>Show this help</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>A</kbd></td><td>Toggle canvas</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>B</kbd></td><td>Toggle blur screen</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>C</kbd></td><td>New container</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>D</kbd></td><td>Toggle notes / Diary</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>F</kbd></td><td>Toggle full screen</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>G</kbd></td><td>Global search</td></tr>
-                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>S</kbd></td><td>Toggle sidebar</td></tr>
-                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>T</kbd></td><td>Toggle theme</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>N</kbd></td><td>New tab</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>S</kbd></td><td>Toggle sidebar</td></tr>
+                        <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>T</kbd></td><td>Toggle theme / New tab in URL window</td></tr>
                         <tr><td class="kbd-col"><kbd>Alt</kbd>+<kbd>W</kbd></td><td>Close tab</td></tr>
                         <tr><td class="kbd-col"><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Focus search bar</td></tr>
                         <tr><td class="kbd-col"><kbd>Backspace</kbd></td><td>Go back (when not typing)</td></tr>
@@ -313,6 +344,9 @@
             </button>
             <button class="toolbox-menu-item" id="toolboxCanvasBtn">
                 <i class="fa-solid fa-paintbrush"></i> Canvas
+            </button>
+            <button class="toolbox-menu-item" id="toolboxFullscreenBtn">
+                <i class="fa-solid fa-expand"></i> Full Screen
             </button>
         </div>
         <button id="toolboxBtn" class="toolbox-btn" title="Toolbox">
