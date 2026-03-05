@@ -189,7 +189,6 @@ class MediaBrowser {
     // Update notifications
     this.elements.updateBtn.addEventListener('click', () => this.openUpdateModal());
     this.elements.closeUpdateBtn.addEventListener('click', () => this.closeUpdateModal());
-    this.elements.downloadUpdateBtn.addEventListener('click', () => this.downloadUpdate());
     this.elements.viewReleaseBtn.addEventListener('click', () => this.openReleaseUrl());
     this.elements.updateModal.addEventListener('click', (e) => {
       if (e.target === this.elements.updateModal) this.closeUpdateModal();
@@ -1376,9 +1375,11 @@ class MediaBrowser {
     if (this.updateInfo.downloadUrl) {
       this.elements.downloadUpdateBtn.disabled = false;
       this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Download Update';
+      this.elements.downloadUpdateBtn.onclick = () => this.downloadUpdate();
     } else {
       this.elements.downloadUpdateBtn.disabled = true;
       this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> No exe available';
+      this.elements.downloadUpdateBtn.onclick = null;
     }
     
     this.elements.updateModal.classList.remove('hidden');
@@ -1446,10 +1447,12 @@ class MediaBrowser {
         this.elements.updateProgressSpeed.textContent = '';
         this.elements.updateProgressETA.textContent = '';
         
-        this.elements.updateStatus.textContent = `Downloaded to: ${data.filePath}`;
+        this.elements.updateStatus.textContent = 'Update downloaded! Click "Restart" to apply the update.';
         this.elements.updateStatus.className = 'update-status success';
-        this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-check"></i> Downloaded';
-        this.showNotification('Update downloaded to Downloads folder!', 'success');
+        this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Restart to Update';
+        this.elements.downloadUpdateBtn.disabled = false;
+        this.elements.downloadUpdateBtn.onclick = () => this.restartForUpdate();
+        this.showNotification('Update downloaded! Restart to apply.', 'success');
       });
 
       eventSource.addEventListener('error', (e) => {
@@ -1487,6 +1490,31 @@ class MediaBrowser {
       this.elements.downloadUpdateBtn.disabled = false;
       this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Retry Download';
       this.showNotification('Download failed: ' + err.message, 'error');
+    }
+  }
+
+  async restartForUpdate() {
+    this.elements.downloadUpdateBtn.disabled = true;
+    this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Restarting...';
+    this.elements.updateStatus.textContent = 'Restarting application to apply update...';
+    
+    try {
+      const response = await fetch('/api/update/restart', { method: 'POST' });
+      const data = await response.json();
+      
+      if (data.success) {
+        this.elements.updateStatus.textContent = 'Application is restarting. This window will close shortly...';
+        this.showNotification('Restarting to apply update...', 'info');
+        // The server will exit, so the page will eventually lose connection
+      } else {
+        throw new Error(data.error || 'Failed to restart');
+      }
+    } catch (err) {
+      this.elements.updateStatus.textContent = 'Restart failed: ' + err.message;
+      this.elements.updateStatus.className = 'update-status error';
+      this.elements.downloadUpdateBtn.disabled = false;
+      this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Retry Restart';
+      this.showNotification('Restart failed: ' + err.message, 'error');
     }
   }
 

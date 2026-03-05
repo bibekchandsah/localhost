@@ -327,7 +327,6 @@ app.get('/api/update/download-stream', (req, res) => {
 
   const https = require('https');
   const http = require('http');
-  const os = require('os');
   const fsSync = require('fs');
   
   // Set up SSE headers
@@ -340,13 +339,16 @@ app.get('/api/update/download-stream', (req, res) => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
-  // Get Downloads folder path
-  const downloadsPath = path.join(os.homedir(), 'Downloads');
-  const fileName = `LocalHost-${Date.now()}.exe`;
-  const filePath = path.join(downloadsPath, fileName);
+  // Download to the same directory as the running executable
+  const exePath = process.execPath;
+  const exeDir = path.dirname(exePath);
+  const exeName = path.basename(exePath, '.exe');
+  const newFileName = `${exeName}-update.exe`;
+  const filePath = path.join(exeDir, newFileName);
   
   console.log('Downloading update to:', filePath);
-  sendEvent('start', { filePath, fileName });
+  console.log('Current executable:', exePath);
+  sendEvent('start', { filePath, fileName: newFileName, exePath, exeDir });
 
   const downloadWithProgress = (url) => {
     const protocol = url.startsWith('https') ? https : http;
@@ -401,10 +403,29 @@ app.get('/api/update/download-stream', (req, res) => {
       
       file.on('finish', () => {
         file.close();
+        
+        // Create a restart batch script
+        const batchContent = `@echo off
+timeout /t 2 /nobreak >nul
+del "${exePath}"
+rename "${filePath}" "${path.basename(exePath)}"
+start "" "${exePath}"
+del "%~f0"
+`;
+        const batchPath = path.join(exeDir, 'update-restart.bat');
+        try {
+          fsSync.writeFileSync(batchPath, batchContent);
+          console.log('Created restart script:', batchPath);
+        } catch (err) {
+          console.error('Failed to create restart script:', err);
+        }
+        
         sendEvent('complete', { 
           success: true, 
           filePath,
-          fileName,
+          fileName: newFileName,
+          exePath,
+          batchPath,
           size: downloadedSize,
           sizeText: formatBytes(downloadedSize)
         });
@@ -431,6 +452,40 @@ app.get('/api/update/download-stream', (req, res) => {
   req.on('close', () => {
     console.log('Download stream closed by client');
   });
+});
+
+/**
+ * POST /api/update/restart
+ * Triggers the restart script to apply the update
+ */
+app.post('/api/update/restart', (req, res) => {
+  const { spawn } = require('child_process');
+  const fsSync = require('fs');
+  
+  const exePath = process.execPath;
+  const exeDir = path.dirname(exePath);
+  const batchPath = path.join(exeDir, 'update-restart.bat');
+  
+  if (!fsSync.existsSync(batchPath)) {
+    return res.status(400).json({ success: false, error: 'Restart script not found. Please download the update first.' });
+  }
+  
+  console.log('Executing restart script:', batchPath);
+  
+  // Spawn the batch script detached so it continues after we exit
+  const child = spawn('cmd.exe', ['/c', batchPath], {
+    detached: true,
+    stdio: 'ignore',
+    cwd: exeDir
+  });
+  child.unref();
+  
+  res.json({ success: true, message: 'Restarting application...' });
+  
+  // Exit the current process after a short delay
+  setTimeout(() => {
+    process.exit(0);
+  }, 500);
 });
 
 // Helper functions for formatting
