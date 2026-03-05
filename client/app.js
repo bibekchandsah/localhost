@@ -28,6 +28,8 @@ class MediaBrowser {
     this.urlTabs = [];
     this.activeUrlTabId = 0;
     this.nextUrlTabId = 1;
+    // Update info
+    this.updateInfo = null;
 
     this.initializeUI();
     this.setupEventListeners();
@@ -141,7 +143,26 @@ class MediaBrowser {
       copyCloudLinkBtn: document.getElementById('copyCloudLinkBtn'),
       startTunnelBtn: document.getElementById('startTunnelBtn'),
       stopTunnelBtn: document.getElementById('stopTunnelBtn'),
-      closeCloudShareBtn: document.getElementById('closeCloudShareBtn')
+      closeCloudShareBtn: document.getElementById('closeCloudShareBtn'),
+
+      // Update
+      updateBtn: document.getElementById('updateBtn'),
+      updateModal: document.getElementById('updateModal'),
+      closeUpdateBtn: document.getElementById('closeUpdateBtn'),
+      currentVersionText: document.getElementById('currentVersionText'),
+      latestVersionText: document.getElementById('latestVersionText'),
+      updateReleaseName: document.getElementById('updateReleaseName'),
+      updateReleaseNotes: document.getElementById('updateReleaseNotes'),
+      updateProgressContainer: document.getElementById('updateProgressContainer'),
+      updateProgressText: document.getElementById('updateProgressText'),
+      updateProgressPercent: document.getElementById('updateProgressPercent'),
+      updateProgressFill: document.getElementById('updateProgressFill'),
+      updateProgressDownloaded: document.getElementById('updateProgressDownloaded'),
+      updateProgressSpeed: document.getElementById('updateProgressSpeed'),
+      updateProgressETA: document.getElementById('updateProgressETA'),
+      updateStatus: document.getElementById('updateStatus'),
+      downloadUpdateBtn: document.getElementById('downloadUpdateBtn'),
+      viewReleaseBtn: document.getElementById('viewReleaseBtn')
     };
   }
 
@@ -164,6 +185,17 @@ class MediaBrowser {
     this.elements.cloudShareModal.addEventListener('click', (e) => {
       if (e.target === this.elements.cloudShareModal) this.closeCloudShareModal();
     });
+
+    // Update notifications
+    this.elements.updateBtn.addEventListener('click', () => this.openUpdateModal());
+    this.elements.closeUpdateBtn.addEventListener('click', () => this.closeUpdateModal());
+    this.elements.downloadUpdateBtn.addEventListener('click', () => this.downloadUpdate());
+    this.elements.viewReleaseBtn.addEventListener('click', () => this.openReleaseUrl());
+    this.elements.updateModal.addEventListener('click', (e) => {
+      if (e.target === this.elements.updateModal) this.closeUpdateModal();
+    });
+    // Check for updates on startup
+    this.checkForUpdates();
     document.getElementById('closeUrlInputBtn').addEventListener('click', () => this.closeUrlDialog());
     document.getElementById('closeUrlViewerBtn').addEventListener('click', () => this.closeUrlViewer());
     document.getElementById('urlViewerNewTab').addEventListener('click', () => {
@@ -1308,6 +1340,154 @@ class MediaBrowser {
       document.execCommand('copy');
       this.showNotification('Link copied!', 'success');
     });
+  }
+
+  // ============ Auto-Update ============
+
+  async checkForUpdates() {
+    try {
+      const response = await fetch('/api/update/check');
+      const data = await response.json();
+      
+      this.updateInfo = data;
+      
+      if (data.hasUpdate) {
+        // Show update button with badge
+        this.elements.updateBtn.classList.remove('hidden');
+        this.showNotification(`Update available: v${data.latestVersion}`, 'success');
+      }
+    } catch (err) {
+      console.log('Update check failed:', err.message);
+    }
+  }
+
+  openUpdateModal() {
+    if (!this.updateInfo) return;
+    
+    this.elements.currentVersionText.textContent = 'v' + this.updateInfo.currentVersion;
+    this.elements.latestVersionText.textContent = 'v' + this.updateInfo.latestVersion;
+    this.elements.updateReleaseName.textContent = this.updateInfo.releaseName || '';
+    this.elements.updateReleaseNotes.textContent = this.updateInfo.releaseNotes || 'No release notes available.';
+    this.elements.updateStatus.textContent = '';
+    this.elements.updateStatus.className = 'update-status';
+    this.elements.updateProgressContainer.classList.add('hidden');
+    
+    // Enable/disable download button based on whether exe is available
+    if (this.updateInfo.downloadUrl) {
+      this.elements.downloadUpdateBtn.disabled = false;
+      this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Download Update';
+    } else {
+      this.elements.downloadUpdateBtn.disabled = true;
+      this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> No exe available';
+    }
+    
+    this.elements.updateModal.classList.remove('hidden');
+  }
+
+  closeUpdateModal() {
+    this.elements.updateModal.classList.add('hidden');
+  }
+
+  openReleaseUrl() {
+    if (this.updateInfo && this.updateInfo.releaseUrl) {
+      window.open(this.updateInfo.releaseUrl, '_blank');
+    }
+  }
+
+  async downloadUpdate() {
+    if (!this.updateInfo || !this.updateInfo.downloadUrl) {
+      this.showNotification('No download URL available', 'error');
+      return;
+    }
+
+    this.elements.downloadUpdateBtn.disabled = true;
+    this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
+    this.elements.updateStatus.textContent = '';
+    this.elements.updateStatus.className = 'update-status';
+    
+    // Show progress bar immediately with initial state
+    this.elements.updateProgressContainer.classList.remove('hidden');
+    this.elements.updateProgressFill.style.width = '0%';
+    this.elements.updateProgressPercent.textContent = '0%';
+    this.elements.updateProgressText.textContent = 'Connecting to server...';
+    this.elements.updateProgressDownloaded.textContent = '0 B / --';
+    this.elements.updateProgressSpeed.textContent = '-- /s';
+    this.elements.updateProgressETA.textContent = 'ETA: --';
+
+    try {
+      const url = `/api/update/download-stream?url=${encodeURIComponent(this.updateInfo.downloadUrl)}`;
+      const eventSource = new EventSource(url);
+      let downloadedFilePath = '';
+
+      eventSource.addEventListener('start', (e) => {
+        const data = JSON.parse(e.data);
+        this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+        this.elements.updateProgressText.textContent = `Downloading ${data.fileName}...`;
+        this.elements.updateStatus.textContent = '';
+      });
+
+      eventSource.addEventListener('progress', (e) => {
+        const data = JSON.parse(e.data);
+        this.elements.updateProgressFill.style.width = `${data.percent}%`;
+        this.elements.updateProgressPercent.textContent = `${data.percent}%`;
+        this.elements.updateProgressDownloaded.textContent = `${data.downloadedText} / ${data.totalText}`;
+        this.elements.updateProgressSpeed.textContent = data.speedText;
+        this.elements.updateProgressETA.textContent = `ETA: ${data.remainingText}`;
+      });
+
+      eventSource.addEventListener('complete', (e) => {
+        const data = JSON.parse(e.data);
+        downloadedFilePath = data.filePath;
+        eventSource.close();
+        
+        this.elements.updateProgressFill.style.width = '100%';
+        this.elements.updateProgressPercent.textContent = '100%';
+        this.elements.updateProgressText.textContent = 'Download complete!';
+        this.elements.updateProgressSpeed.textContent = '';
+        this.elements.updateProgressETA.textContent = '';
+        
+        this.elements.updateStatus.textContent = `Downloaded to: ${data.filePath}`;
+        this.elements.updateStatus.className = 'update-status success';
+        this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-check"></i> Downloaded';
+        this.showNotification('Update downloaded to Downloads folder!', 'success');
+      });
+
+      eventSource.addEventListener('error', (e) => {
+        let errorMsg = 'Download failed';
+        try {
+          const data = JSON.parse(e.data);
+          errorMsg = data.error || errorMsg;
+        } catch (_) {}
+        
+        eventSource.close();
+        this.elements.updateProgressContainer.classList.add('hidden');
+        this.elements.updateStatus.textContent = 'Download failed: ' + errorMsg;
+        this.elements.updateStatus.className = 'update-status error';
+        this.elements.downloadUpdateBtn.disabled = false;
+        this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Retry Download';
+        this.showNotification('Download failed: ' + errorMsg, 'error');
+      });
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        // Only show error if we haven't already completed
+        if (!this.elements.updateStatus.textContent.includes('Downloaded to')) {
+          this.elements.updateProgressContainer.classList.add('hidden');
+          this.elements.updateStatus.textContent = 'Connection lost during download';
+          this.elements.updateStatus.className = 'update-status error';
+          this.elements.downloadUpdateBtn.disabled = false;
+          this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Retry Download';
+        }
+      };
+
+    } catch (err) {
+      this.elements.updateProgressContainer.classList.add('hidden');
+      this.elements.updateStatus.textContent = 'Download failed: ' + err.message;
+      this.elements.updateStatus.className = 'update-status error';
+      this.elements.downloadUpdateBtn.disabled = false;
+      this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Retry Download';
+      this.showNotification('Download failed: ' + err.message, 'error');
+    }
   }
 
   extractYouTubeId(input) {

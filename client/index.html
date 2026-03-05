@@ -40,6 +40,7 @@
                 <h1><i class="fa-solid fa-film" style="color:var(--accent);margin-right:6px"></i>Media Browser</h1>
                 <div class="header-actions">
                     <!-- <button id="sidebarToggleBtn" class="btn-icon" title="Toggle sidebar"><i class="fa-solid fa-bars"></i></button> -->
+                    <button id="updateBtn" class="btn-icon hidden" title="Update available"><i class="fa-solid fa-arrow-up-from-bracket"></i><span class="update-badge"></span></button>
                     <button id="darkModeBtn" class="btn-icon" title="Toggle dark mode"><i class="fa-solid fa-moon"></i></button>
                     <button id="cloudShareBtn" class="btn-icon" title="Share via Cloudflare Tunnel"><i class="fa-solid fa-cloud"></i></button>
                     <button id="openUrlBtn" class="btn-icon" title="Open URL"><i class="fa-solid fa-link"></i></button>
@@ -233,6 +234,48 @@
                 <div class="modal-actions">
                     <button id="startTunnelBtn" class="btn btn-primary"><i class="fa-solid fa-play"></i> Start Tunnel</button>
                     <button id="stopTunnelBtn" class="btn btn-secondary hidden"><i class="fa-solid fa-stop"></i> Stop Tunnel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Update Available Modal -->
+        <div id="updateModal" class="modal hidden">
+            <div class="modal-content medium">
+                <div class="update-modal-header">
+                    <i class="fa-solid fa-arrow-up-from-bracket" style="color:var(--accent)"></i>
+                    <h2>Update Available</h2>
+                    <button id="closeUpdateBtn" class="btn-close">&#x2715;</button>
+                </div>
+                <div class="update-modal-body">
+                    <div class="update-version-info">
+                        <span class="update-version-label">Current version:</span>
+                        <span id="currentVersionText" class="update-version-value">-</span>
+                    </div>
+                    <div class="update-version-info">
+                        <span class="update-version-label">New version:</span>
+                        <span id="latestVersionText" class="update-version-value highlight">-</span>
+                    </div>
+                    <div id="updateReleaseName" class="update-release-name"></div>
+                    <div id="updateReleaseNotes" class="update-release-notes"></div>
+                    <div id="updateProgressContainer" class="update-progress-container hidden">
+                        <div class="update-progress-header">
+                            <span id="updateProgressText">Downloading...</span>
+                            <span id="updateProgressPercent">0%</span>
+                        </div>
+                        <div class="update-progress-bar">
+                            <div id="updateProgressFill" class="update-progress-fill"></div>
+                        </div>
+                        <div class="update-progress-stats">
+                            <span id="updateProgressDownloaded">0 B / 0 B</span>
+                            <span id="updateProgressSpeed">-- /s</span>
+                            <span id="updateProgressETA">ETA: --</span>
+                        </div>
+                    </div>
+                    <div id="updateStatus" class="update-status"></div>
+                </div>
+                <div class="modal-actions">
+                    <button id="downloadUpdateBtn" class="btn btn-primary"><i class="fa-solid fa-download"></i> Download Update</button>
+                    <button id="viewReleaseBtn" class="btn btn-secondary"><i class="fa-solid fa-external-link"></i> View on GitHub</button>
                 </div>
             </div>
         </div>

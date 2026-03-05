@@ -255,6 +255,285 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// ============ Auto-Update API ============
+const GITHUB_REPO = 'bibekchandsah/localhost';
+const CURRENT_VERSION = require('../package.json').version;
+
+/**
+ * Check for updates from GitHub releases
+ * GET /api/update/check
+ */
+app.get('/api/update/check', async (req, res) => {
+  try {
+    const https = require('https');
+    const options = {
+      hostname: 'api.github.com',
+      path: `/repos/${GITHUB_REPO}/releases/latest`,
+      headers: { 'User-Agent': 'LocalHost-Media-Browser' }
+    };
+
+    const request = https.get(options, (response) => {
+      let data = '';
+      response.on('data', chunk => data += chunk);
+      response.on('end', () => {
+        try {
+          const release = JSON.parse(data);
+          const latestVersion = release.tag_name ? release.tag_name.replace(/^v/, '') : null;
+          
+          if (!latestVersion) {
+            return res.json({ hasUpdate: false, currentVersion: CURRENT_VERSION, error: 'Could not parse version' });
+          }
+
+          // Compare versions (simple string compare works for semantic versions)
+          const hasUpdate = latestVersion !== CURRENT_VERSION && latestVersion > CURRENT_VERSION;
+          
+          res.json({
+            hasUpdate,
+            currentVersion: CURRENT_VERSION,
+            latestVersion,
+            releaseUrl: release.html_url,
+            releaseName: release.name,
+            releaseNotes: release.body,
+            publishedAt: release.published_at,
+            downloadUrl: release.assets && release.assets.length > 0 
+              ? release.assets.find(a => a.name.endsWith('.exe'))?.browser_download_url 
+              : null
+          });
+        } catch (e) {
+          res.json({ hasUpdate: false, currentVersion: CURRENT_VERSION, error: e.message });
+        }
+      });
+    });
+
+    request.on('error', (e) => {
+      res.json({ hasUpdate: false, currentVersion: CURRENT_VERSION, error: e.message });
+    });
+  } catch (err) {
+    res.json({ hasUpdate: false, currentVersion: CURRENT_VERSION, error: err.message });
+  }
+});
+
+/**
+ * Download update to user's Downloads folder with progress
+ * GET /api/update/download-stream?url=...
+ * Uses Server-Sent Events for progress updates
+ */
+app.get('/api/update/download-stream', (req, res) => {
+  const downloadUrl = req.query.url;
+  
+  if (!downloadUrl) {
+    return res.status(400).json({ success: false, error: 'No download URL provided' });
+  }
+
+  const https = require('https');
+  const http = require('http');
+  const os = require('os');
+  const fsSync = require('fs');
+  
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const sendEvent = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Get Downloads folder path
+  const downloadsPath = path.join(os.homedir(), 'Downloads');
+  const fileName = `LocalHost-${Date.now()}.exe`;
+  const filePath = path.join(downloadsPath, fileName);
+  
+  console.log('Downloading update to:', filePath);
+  sendEvent('start', { filePath, fileName });
+
+  const downloadWithProgress = (url) => {
+    const protocol = url.startsWith('https') ? https : http;
+    
+    const request = protocol.get(url, { headers: { 'User-Agent': 'LocalHost-Media-Browser' } }, (response) => {
+      // Handle redirects
+      if (response.statusCode === 302 || response.statusCode === 301) {
+        return downloadWithProgress(response.headers.location);
+      }
+      
+      if (response.statusCode !== 200) {
+        sendEvent('error', { error: `Failed to download: ${response.statusCode}` });
+        res.end();
+        return;
+      }
+
+      const totalSize = parseInt(response.headers['content-length'], 10) || 0;
+      let downloadedSize = 0;
+      let startTime = Date.now();
+      let lastUpdate = startTime;
+      
+      const file = fsSync.createWriteStream(filePath);
+      
+      response.on('data', (chunk) => {
+        downloadedSize += chunk.length;
+        const now = Date.now();
+        
+        // Send progress update every 100ms to avoid flooding
+        if (now - lastUpdate > 100) {
+          const elapsed = (now - startTime) / 1000;
+          const speed = downloadedSize / elapsed; // bytes per second
+          const percent = totalSize > 0 ? (downloadedSize / totalSize) * 100 : 0;
+          const remaining = totalSize > 0 && speed > 0 ? (totalSize - downloadedSize) / speed : 0;
+          
+          sendEvent('progress', {
+            downloadedSize,
+            totalSize,
+            percent: percent.toFixed(1),
+            speed,
+            speedText: formatBytes(speed) + '/s',
+            remaining,
+            remainingText: formatTime(remaining),
+            downloadedText: formatBytes(downloadedSize),
+            totalText: formatBytes(totalSize)
+          });
+          
+          lastUpdate = now;
+        }
+      });
+      
+      response.pipe(file);
+      
+      file.on('finish', () => {
+        file.close();
+        sendEvent('complete', { 
+          success: true, 
+          filePath,
+          fileName,
+          size: downloadedSize,
+          sizeText: formatBytes(downloadedSize)
+        });
+        res.end();
+      });
+
+      file.on('error', (err) => {
+        fsSync.unlink(filePath, () => {});
+        sendEvent('error', { error: err.message });
+        res.end();
+      });
+    });
+    
+    request.on('error', (err) => {
+      fsSync.unlink(filePath, () => {});
+      sendEvent('error', { error: err.message });
+      res.end();
+    });
+  };
+
+  downloadWithProgress(downloadUrl);
+
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log('Download stream closed by client');
+  });
+});
+
+// Helper functions for formatting
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatTime(seconds) {
+  if (!seconds || seconds === Infinity || isNaN(seconds)) return '--';
+  
+  if (seconds < 60) {
+    return `${Math.floor(seconds)} sec`;
+  } else if (seconds < 3600) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins} min ${secs} sec`;
+  } else {
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    return `${hrs} hr ${mins} min`;
+  }
+}
+
+/**
+ * Download update to user's Downloads folder (legacy, non-streaming)
+ * POST /api/update/download
+ * Body: { downloadUrl: string }
+ */
+app.post('/api/update/download', async (req, res) => {
+  const { downloadUrl } = req.body;
+  
+  if (!downloadUrl) {
+    return res.status(400).json({ success: false, error: 'No download URL provided' });
+  }
+
+  try {
+    const https = require('https');
+    const http = require('http');
+    const os = require('os');
+    const fsSync = require('fs');
+    
+    // Get Downloads folder path
+    const downloadsPath = path.join(os.homedir(), 'Downloads');
+    const fileName = `LocalHost-${Date.now()}.exe`;
+    const filePath = path.join(downloadsPath, fileName);
+    
+    console.log('Downloading update to:', filePath);
+    
+    const downloadFile = (url, dest) => {
+      return new Promise((resolve, reject) => {
+        const protocol = url.startsWith('https') ? https : http;
+        
+        const request = protocol.get(url, (response) => {
+          // Handle redirects
+          if (response.statusCode === 302 || response.statusCode === 301) {
+            return downloadFile(response.headers.location, dest).then(resolve).catch(reject);
+          }
+          
+          if (response.statusCode !== 200) {
+            return reject(new Error(`Failed to download: ${response.statusCode}`));
+          }
+          
+          const file = fsSync.createWriteStream(dest);
+          response.pipe(file);
+          
+          file.on('finish', () => {
+            file.close();
+            resolve(dest);
+          });
+        });
+        
+        request.on('error', (err) => {
+          fsSync.unlink(dest, () => {});
+          reject(err);
+        });
+      });
+    };
+
+    await downloadFile(downloadUrl, filePath);
+    
+    res.json({ 
+      success: true, 
+      filePath,
+      message: `Update downloaded to ${filePath}` 
+    });
+  } catch (err) {
+    console.error('Download error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Get current app version
+ * GET /api/version
+ */
+app.get('/api/version', (req, res) => {
+  res.json({ version: CURRENT_VERSION });
+});
+
 /**
  * Open native OS folder picker dialog
  * GET /api/browse-folder
