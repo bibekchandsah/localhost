@@ -1,6 +1,6 @@
 {
   "name": "LocalHost",
-  "version": "0.0.03",
+  "version": "0.0.04",
   "description": "Local Media Browser",
   "main": "server/server.js",
   "bin": "server/server.js",

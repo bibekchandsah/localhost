@@ -3,6 +3,10 @@ const cors = require('cors');
 const path = require('path');
 const fileController = require('./fileController');
 
+// Tunnel authentication state (moved to top for middleware access)
+let tunnelPassword = 'mylocalhost'; // Default password for tunnel access
+let authenticatedSessions = new Set(); // Store authenticated session IDs
+
 // Keep the console window open when running as a packaged .exe so the user
 // can read any error message before the window closes.
 function pauseAndExit(code = 1) {
@@ -37,6 +41,162 @@ try {
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Tunnel authentication middleware - checks password for Cloudflare tunnel requests
+app.use((req, res, next) => {
+  // Check if request is coming through Cloudflare tunnel
+  const isTunnelRequest = req.headers['cf-connecting-ip'] || 
+                          req.headers['cf-ray'] || 
+                          req.headers['cf-visitor'];
+  
+  // Skip auth for local requests
+  if (!isTunnelRequest) {
+    return next();
+  }
+  
+  // Allow tunnel auth endpoints without password
+  if (req.path === '/tunnel-login' || req.path === '/api/tunnel/verify-password') {
+    return next();
+  }
+  
+  // Check for session cookie
+  const cookies = req.headers.cookie || '';
+  const sessionMatch = cookies.match(/tunnel_session=([^;]+)/);
+  const sessionId = sessionMatch ? sessionMatch[1] : null;
+  
+  if (sessionId && authenticatedSessions.has(sessionId)) {
+    return next();
+  }
+  
+  // Redirect to login page for HTML requests, return 401 for API
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+  
+  // Serve login page
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LocalHost - Authentication Required</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+    .login-container {
+      background: rgba(255,255,255,0.05);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 40px;
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+    }
+    .login-icon { font-size: 48px; color: #4ade80; margin-bottom: 20px; }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    .subtitle { color: #888; margin-bottom: 30px; }
+    .input-group { position: relative; margin-bottom: 20px; }
+    input {
+      width: 100%;
+      padding: 14px 16px 14px 45px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus { border-color: #4ade80; }
+    input::placeholder { color: #666; }
+    .input-icon {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #666;
+    }
+    button {
+      width: 100%;
+      padding: 14px;
+      background: #4ade80;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #22c55e; }
+    button:disabled { background: #666; cursor: not-allowed; }
+    .error { color: #f87171; margin-top: 16px; display: none; }
+    .error.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-icon"><i class="fa-solid fa-lock"></i></div>
+    <h1>LocalHost Media Browser</h1>
+    <p class="subtitle">Enter password to access</p>
+    <form id="loginForm">
+      <div class="input-group">
+        <i class="fa-solid fa-key input-icon"></i>
+        <input type="password" id="password" placeholder="Enter password" autocomplete="off" autofocus>
+      </div>
+      <button type="submit" id="submitBtn">
+        <i class="fa-solid fa-right-to-bracket"></i> Access
+      </button>
+    </form>
+    <p class="error" id="errorMsg">Incorrect password</p>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('password').value;
+      const errorMsg = document.getElementById('errorMsg');
+      const submitBtn = document.getElementById('submitBtn');
+      
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Verifying...';
+      errorMsg.classList.remove('show');
+      
+      try {
+        const res = await fetch('/api/tunnel/verify-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          window.location.reload();
+        } else {
+          errorMsg.textContent = data.error || 'Incorrect password';
+          errorMsg.classList.add('show');
+        }
+      } catch (err) {
+        errorMsg.textContent = 'Connection error';
+        errorMsg.classList.add('show');
+      }
+      
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Access';
+    });
+  </script>
+</body>
+</html>`);
+});
 
 // When running as a pkg .exe, __dirname is inside the snapshot virtual filesystem.
 // express.static works with pkg's patched fs, so the path is correct either way.
@@ -704,12 +864,66 @@ let tunnelUrl = null;
 let serverPort = null; // Will be set when server starts
 
 /**
+ * Verify tunnel password
+ * POST /api/tunnel/verify-password
+ */
+app.post('/api/tunnel/verify-password', (req, res) => {
+  const { password } = req.body;
+  
+  if (password === tunnelPassword) {
+    // Generate a session ID
+    const crypto = require('crypto');
+    const sessionId = crypto.randomBytes(32).toString('hex');
+    authenticatedSessions.add(sessionId);
+    
+    // Set cookie that expires in 24 hours
+    res.setHeader('Set-Cookie', `tunnel_session=${sessionId}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400`);
+    res.json({ success: true });
+  } else {
+    res.json({ success: false, error: 'Incorrect password' });
+  }
+});
+
+/**
+ * Get current tunnel password
+ * GET /api/tunnel/password
+ */
+app.get('/api/tunnel/password', (req, res) => {
+  res.json({ success: true, password: tunnelPassword });
+});
+
+/**
+ * Set tunnel password
+ * POST /api/tunnel/password
+ */
+app.post('/api/tunnel/password', (req, res) => {
+  const { password } = req.body;
+  
+  if (!password || password.length < 1) {
+    return res.status(400).json({ success: false, error: 'Password cannot be empty' });
+  }
+  
+  tunnelPassword = password;
+  // Clear existing sessions when password changes
+  authenticatedSessions.clear();
+  res.json({ success: true, message: 'Password updated' });
+});
+
+/**
  * Start cloudflared tunnel
  * POST /api/tunnel/start
  */
 app.post('/api/tunnel/start', (req, res) => {
+  const { password } = req.body;
+  
+  // Update password if provided
+  if (password && password.length > 0) {
+    tunnelPassword = password;
+    authenticatedSessions.clear();
+  }
+  
   if (cloudflaredProcess) {
-    return res.json({ success: true, url: tunnelUrl, message: 'Tunnel already running' });
+    return res.json({ success: true, url: tunnelUrl, password: tunnelPassword, message: 'Tunnel already running' });
   }
 
   if (!serverPort) {
@@ -761,7 +975,7 @@ app.post('/api/tunnel/start', (req, res) => {
     // Start cloudflared with quick-tunnel (no account needed)
     cloudflaredProcess = spawn(cloudflaredPath, ['tunnel', '--url', `http://localhost:${serverPort}`, '--protocol', 'http2'], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true
+      windowsHide: true
     });
 
     let urlFound = false;
@@ -802,7 +1016,7 @@ app.post('/api/tunnel/start', (req, res) => {
     const checkUrl = () => {
       attempts++;
       if (tunnelUrl) {
-        res.json({ success: true, url: tunnelUrl });
+        res.json({ success: true, url: tunnelUrl, password: tunnelPassword });
       } else if (attempts >= maxAttempts) {
         // Timeout - check if process is still running
         if (cloudflaredProcess) {
@@ -867,7 +1081,8 @@ app.post('/api/tunnel/stop', (req, res) => {
 app.get('/api/tunnel/status', (req, res) => {
   res.json({
     running: !!cloudflaredProcess,
-    url: tunnelUrl
+    url: tunnelUrl,
+    password: tunnelPassword
   });
 });
 

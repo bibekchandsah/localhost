@@ -223,11 +223,26 @@
                         <p>Generate a public link to share your media browser with anyone.</p>
                         <p class="cloud-share-note"><i class="fa-solid fa-info-circle"></i> Requires <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank">cloudflared</a> to be installed.</p>
                     </div>
+                    <div id="cloudSharePasswordContainer" class="cloud-share-password-container">
+                        <label for="tunnelPassword"><i class="fa-solid fa-lock"></i> Access Password:</label>
+                        <div class="cloud-share-password-row">
+                            <input type="text" id="tunnelPassword" class="cloud-share-password-input" value="mylocalhost" placeholder="Enter password">
+                            <button id="togglePasswordVisibility" class="btn btn-secondary" title="Toggle visibility"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                        <p class="cloud-share-password-note">Users will need this password to access the shared link</p>
+                    </div>
                     <div id="cloudShareLinkContainer" class="cloud-share-link-container hidden">
                         <label>Your public link:</label>
                         <div class="cloud-share-link-row">
                             <input type="text" id="cloudShareLink" class="cloud-share-link-input" readonly>
                             <button id="copyCloudLinkBtn" class="btn btn-secondary" title="Copy link"><i class="fa-solid fa-copy"></i></button>
+                        </div>
+                        <div class="cloud-share-password-display">
+                            <label>Password:</label>
+                            <div class="cloud-share-link-row">
+                                <input type="text" id="cloudSharePasswordDisplay" class="cloud-share-link-input" readonly>
+                                <button id="copyCloudPasswordBtn" class="btn btn-secondary" title="Copy password"><i class="fa-solid fa-copy"></i></button>
+                            </div>
                         </div>
                     </div>
                 </div>

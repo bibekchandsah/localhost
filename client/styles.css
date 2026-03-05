@@ -2026,7 +2026,7 @@ body.dark-mode .csv-header-icon { color: #4ade80; }
 }
 
 .cloud-share-body {
-  margin-top: 1rem;
+  margin: 1rem;
 }
 
 .cloud-share-status {
@@ -2087,6 +2087,63 @@ body.dark-mode .csv-header-icon { color: #4ade80; }
 
 .cloud-share-link-input:focus {
   border-color: var(--accent);
+}
+
+.cloud-share-password-container {
+  margin-top: 1rem;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.cloud-share-password-container label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.cloud-share-password-row {
+  display: flex;
+  gap: 8px;
+}
+
+.cloud-share-password-input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.cloud-share-password-input:focus {
+  border-color: var(--accent);
+}
+
+.cloud-share-password-note {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  opacity: 0.8;
+}
+
+.cloud-share-password-display {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.cloud-share-password-display label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
 }
 
 /* ─── Update Modal ───────────────────────────────────────── */

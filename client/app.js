@@ -146,6 +146,11 @@ class MediaBrowser {
       startTunnelBtn: document.getElementById('startTunnelBtn'),
       stopTunnelBtn: document.getElementById('stopTunnelBtn'),
       closeCloudShareBtn: document.getElementById('closeCloudShareBtn'),
+      tunnelPassword: document.getElementById('tunnelPassword'),
+      cloudSharePasswordContainer: document.getElementById('cloudSharePasswordContainer'),
+      togglePasswordVisibility: document.getElementById('togglePasswordVisibility'),
+      cloudSharePasswordDisplay: document.getElementById('cloudSharePasswordDisplay'),
+      copyCloudPasswordBtn: document.getElementById('copyCloudPasswordBtn'),
 
       // Update
       updateBtn: document.getElementById('updateBtn'),
@@ -184,6 +189,8 @@ class MediaBrowser {
     this.elements.startTunnelBtn.addEventListener('click', () => this.startTunnel());
     this.elements.stopTunnelBtn.addEventListener('click', () => this.stopTunnel());
     this.elements.copyCloudLinkBtn.addEventListener('click', () => this.copyTunnelLink());
+    this.elements.copyCloudPasswordBtn.addEventListener('click', () => this.copyTunnelPassword());
+    this.elements.togglePasswordVisibility.addEventListener('click', () => this.toggleTunnelPasswordVisibility());
     this.elements.cloudShareModal.addEventListener('click', (e) => {
       if (e.target === this.elements.cloudShareModal) this.closeCloudShareModal();
     });
@@ -1232,7 +1239,7 @@ class MediaBrowser {
       const response = await fetch('/api/tunnel/status');
       const data = await response.json();
       if (data.running && data.url) {
-        this.showTunnelRunning(data.url);
+        this.showTunnelRunning(data.url, data.password);
       } else {
         this.showTunnelStopped();
       }
@@ -1245,13 +1252,15 @@ class MediaBrowser {
     this.elements.cloudShareModal.classList.add('hidden');
   }
 
-  showTunnelRunning(url) {
+  showTunnelRunning(url, password = 'mylocalhost') {
     this.elements.cloudShareStatus.innerHTML = `
       <p><i class="fa-solid fa-check-circle" style="color: #4caf50;"></i> Tunnel is running!</p>
-      <p class="cloud-share-note">Anyone with this link can access your media browser.</p>
+      <p class="cloud-share-note">Anyone with this link and password can access your media browser.</p>
     `;
+    this.elements.cloudSharePasswordContainer.classList.add('hidden');
     this.elements.cloudShareLinkContainer.classList.remove('hidden');
     this.elements.cloudShareLink.value = url;
+    this.elements.cloudSharePasswordDisplay.value = password;
     this.elements.startTunnelBtn.classList.add('hidden');
     this.elements.stopTunnelBtn.classList.remove('hidden');
   }
@@ -1261,8 +1270,10 @@ class MediaBrowser {
       <p>Generate a public link to share your media browser with anyone.</p>
       <p class="cloud-share-note"><i class="fa-solid fa-info-circle"></i> Requires <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank">cloudflared</a> to be installed.</p>
     `;
+    this.elements.cloudSharePasswordContainer.classList.remove('hidden');
     this.elements.cloudShareLinkContainer.classList.add('hidden');
     this.elements.cloudShareLink.value = '';
+    this.elements.cloudSharePasswordDisplay.value = '';
     this.elements.startTunnelBtn.classList.remove('hidden');
     this.elements.stopTunnelBtn.classList.add('hidden');
   }
@@ -1276,11 +1287,16 @@ class MediaBrowser {
     `;
 
     try {
-      const response = await fetch('/api/tunnel/start', { method: 'POST' });
+      const password = this.elements.tunnelPassword.value || 'mylocalhost';
+      const response = await fetch('/api/tunnel/start', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
       const data = await response.json();
 
       if (data.success && data.url) {
-        this.showTunnelRunning(data.url);
+        this.showTunnelRunning(data.url, data.password || password);
         this.showNotification('Tunnel started! Link copied to clipboard.', 'success');
         // Auto-copy to clipboard
         this.copyTunnelLink();
@@ -1341,6 +1357,37 @@ class MediaBrowser {
       document.execCommand('copy');
       this.showNotification('Link copied!', 'success');
     });
+  }
+
+  copyTunnelPassword() {
+    const password = this.elements.cloudSharePasswordDisplay.value;
+    if (!password) return;
+
+    navigator.clipboard.writeText(password).then(() => {
+      this.showNotification('Password copied to clipboard!', 'success');
+      // Visual feedback
+      this.elements.copyCloudPasswordBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+      setTimeout(() => {
+        this.elements.copyCloudPasswordBtn.innerHTML = '<i class="fa-solid fa-copy"></i>';
+      }, 2000);
+    }).catch(err => {
+      // Fallback for older browsers
+      this.elements.cloudSharePasswordDisplay.select();
+      document.execCommand('copy');
+      this.showNotification('Password copied!', 'success');
+    });
+  }
+
+  toggleTunnelPasswordVisibility() {
+    const input = this.elements.tunnelPassword;
+    const btn = this.elements.togglePasswordVisibility;
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+    } else {
+      input.type = 'password';
+      btn.innerHTML = '<i class="fa-solid fa-eye"></i>';
+    }
   }
 
   // ============ Auto-Update ============
