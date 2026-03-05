@@ -18,6 +18,23 @@ const fs   = require('fs');
 
 const ROOT = path.resolve(__dirname, '..');
 
+// Helper function to retry file operations (handles EBUSY errors from antivirus/Windows)
+function retryFileOp(operation, maxRetries = 5, delayMs = 1000) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return operation();
+    } catch (err) {
+      if (err.code === 'EBUSY' && i < maxRetries - 1) {
+        console.log(`  File busy, retrying in ${delayMs}ms... (attempt ${i + 2}/${maxRetries})`);
+        const start = Date.now();
+        while (Date.now() - start < delayMs) {} // sync sleep
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // ── 1. Generate multi-size ICO ───────────────────────────────────────────────
 
 const faviconDir = path.join(ROOT, 'client', 'favicon');
@@ -28,7 +45,8 @@ fs.mkdirSync(path.dirname(icoPath), { recursive: true });
 const sources = [
   { file: 'favicon-16x16.png', byte: 16 },
   { file: 'favicon-32x32.png', byte: 32 },
-  { file: 'favicon-96x96.png', byte: 0  }, // 0 = 256-class high-res
+  { file: 'android-icon-48x48.png', byte: 48 },
+  { file: 'ms-icon-310x310.png', byte: 0  }, // 0 = 256-class high-res (uses 310px image)
 ];
 
 const entries = sources.map(s => ({
@@ -59,7 +77,7 @@ entries.forEach((e, i) => {
 entries.forEach(e => e.data.copy(icoBuf, e.offset));
 
 fs.writeFileSync(icoPath, icoBuf);
-console.log('ICO generated:', entries.map(e => `${e.byte || '96->256'}px`).join(', '));
+console.log('ICO generated:', entries.map(e => `${e.byte || '310->256'}px`).join(', '));
 
 // ── 2. Build with pkg ────────────────────────────────────────────────────────
 
@@ -74,7 +92,7 @@ execSync(`"${pkgBin}" . --compress GZip --output dist/LocalHost.exe`, {
 // ── 3. Inject icon with resedit (preserves extraData / pkg snapshot) ─────────
 
 console.log('\nInjecting custom icon...');
-const exeBufBefore = fs.readFileSync(exePath);
+const exeBufBefore = retryFileOp(() => fs.readFileSync(exePath));
 const sizeBefore   = exeBufBefore.length;
 
 const exe = NtExecutable.from(exeBufBefore, { ignoreCert: true });
@@ -135,6 +153,6 @@ if (D !== 0) {
   }
 }
 
-fs.writeFileSync(exePath, newPEBuf);
+retryFileOp(() => fs.writeFileSync(exePath, newPEBuf));
 console.log(`\nDone! -> dist/LocalHost.exe (${(newPEBuf.length / 1024 / 1024).toFixed(1)} MB)`);
 console.log('cloudflared.exe is bundled inside the executable and will be extracted on first tunnel use.');

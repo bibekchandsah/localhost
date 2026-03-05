@@ -30,6 +30,8 @@ class MediaBrowser {
     this.nextUrlTabId = 1;
     // Update info
     this.updateInfo = null;
+    this.downloadState = null; // Track download progress state
+    this.downloadEventSource = null; // EventSource for download stream
 
     this.initializeUI();
     this.setupEventListeners();
@@ -1367,19 +1369,40 @@ class MediaBrowser {
     this.elements.latestVersionText.textContent = 'v' + this.updateInfo.latestVersion;
     this.elements.updateReleaseName.textContent = this.updateInfo.releaseName || '';
     this.elements.updateReleaseNotes.textContent = this.updateInfo.releaseNotes || 'No release notes available.';
-    this.elements.updateStatus.textContent = '';
-    this.elements.updateStatus.className = 'update-status';
-    this.elements.updateProgressContainer.classList.add('hidden');
     
-    // Enable/disable download button based on whether exe is available
-    if (this.updateInfo.downloadUrl) {
-      this.elements.downloadUpdateBtn.disabled = false;
-      this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Download Update';
-      this.elements.downloadUpdateBtn.onclick = () => this.downloadUpdate();
+    // Restore download state if download is in progress
+    if (this.downloadState) {
+      this.elements.updateProgressContainer.classList.remove('hidden');
+      this.elements.updateProgressFill.style.width = this.downloadState.percent + '%';
+      this.elements.updateProgressPercent.textContent = this.downloadState.percent + '%';
+      this.elements.updateProgressText.textContent = this.downloadState.text;
+      this.elements.updateProgressDownloaded.textContent = this.downloadState.downloaded;
+      this.elements.updateProgressSpeed.textContent = this.downloadState.speed;
+      this.elements.updateProgressETA.textContent = this.downloadState.eta;
+      this.elements.updateStatus.textContent = this.downloadState.status || '';
+      this.elements.updateStatus.className = 'update-status ' + (this.downloadState.statusClass || '');
+      this.elements.downloadUpdateBtn.disabled = this.downloadState.buttonDisabled;
+      this.elements.downloadUpdateBtn.innerHTML = this.downloadState.buttonHtml;
+      if (this.downloadState.buttonOnClick === 'restart') {
+        this.elements.downloadUpdateBtn.onclick = () => this.restartForUpdate();
+      } else if (this.downloadState.buttonOnClick === 'download') {
+        this.elements.downloadUpdateBtn.onclick = () => this.downloadUpdate();
+      }
     } else {
-      this.elements.downloadUpdateBtn.disabled = true;
-      this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> No exe available';
-      this.elements.downloadUpdateBtn.onclick = null;
+      this.elements.updateStatus.textContent = '';
+      this.elements.updateStatus.className = 'update-status';
+      this.elements.updateProgressContainer.classList.add('hidden');
+      
+      // Enable/disable download button based on whether exe is available
+      if (this.updateInfo.downloadUrl) {
+        this.elements.downloadUpdateBtn.disabled = false;
+        this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Download Update';
+        this.elements.downloadUpdateBtn.onclick = () => this.downloadUpdate();
+      } else {
+        this.elements.downloadUpdateBtn.disabled = true;
+        this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> No exe available';
+        this.elements.downloadUpdateBtn.onclick = null;
+      }
     }
     
     this.elements.updateModal.classList.remove('hidden');
@@ -1401,6 +1424,20 @@ class MediaBrowser {
       return;
     }
 
+    // Initialize download state
+    this.downloadState = {
+      percent: '0',
+      text: 'Connecting to server...',
+      downloaded: '0 B / --',
+      speed: '-- /s',
+      eta: 'ETA: --',
+      status: '',
+      statusClass: '',
+      buttonDisabled: true,
+      buttonHtml: '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...',
+      buttonOnClick: null
+    };
+
     this.elements.downloadUpdateBtn.disabled = true;
     this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Connecting...';
     this.elements.updateStatus.textContent = '';
@@ -1418,28 +1455,47 @@ class MediaBrowser {
     try {
       const url = `/api/update/download-stream?url=${encodeURIComponent(this.updateInfo.downloadUrl)}`;
       const eventSource = new EventSource(url);
+      this.downloadEventSource = eventSource;
       let downloadedFilePath = '';
 
       eventSource.addEventListener('start', (e) => {
         const data = JSON.parse(e.data);
-        this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
-        this.elements.updateProgressText.textContent = `Downloading ${data.fileName}...`;
+        this.downloadState.text = `Downloading ${data.fileName}...`;
+        this.downloadState.buttonHtml = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+        this.elements.downloadUpdateBtn.innerHTML = this.downloadState.buttonHtml;
+        this.elements.updateProgressText.textContent = this.downloadState.text;
         this.elements.updateStatus.textContent = '';
       });
 
       eventSource.addEventListener('progress', (e) => {
         const data = JSON.parse(e.data);
+        this.downloadState.percent = data.percent;
+        this.downloadState.downloaded = `${data.downloadedText} / ${data.totalText}`;
+        this.downloadState.speed = data.speedText;
+        this.downloadState.eta = `ETA: ${data.remainingText}`;
+        
         this.elements.updateProgressFill.style.width = `${data.percent}%`;
         this.elements.updateProgressPercent.textContent = `${data.percent}%`;
-        this.elements.updateProgressDownloaded.textContent = `${data.downloadedText} / ${data.totalText}`;
-        this.elements.updateProgressSpeed.textContent = data.speedText;
-        this.elements.updateProgressETA.textContent = `ETA: ${data.remainingText}`;
+        this.elements.updateProgressDownloaded.textContent = this.downloadState.downloaded;
+        this.elements.updateProgressSpeed.textContent = this.downloadState.speed;
+        this.elements.updateProgressETA.textContent = this.downloadState.eta;
       });
 
       eventSource.addEventListener('complete', (e) => {
         const data = JSON.parse(e.data);
         downloadedFilePath = data.filePath;
         eventSource.close();
+        this.downloadEventSource = null;
+        
+        this.downloadState.percent = '100';
+        this.downloadState.text = 'Download complete!';
+        this.downloadState.speed = '';
+        this.downloadState.eta = '';
+        this.downloadState.status = 'Update downloaded! Click "Restart" to apply the update.';
+        this.downloadState.statusClass = 'success';
+        this.downloadState.buttonDisabled = false;
+        this.downloadState.buttonHtml = '<i class="fa-solid fa-rotate-right"></i> Restart to Update';
+        this.downloadState.buttonOnClick = 'restart';
         
         this.elements.updateProgressFill.style.width = '100%';
         this.elements.updateProgressPercent.textContent = '100%';
@@ -1447,9 +1503,9 @@ class MediaBrowser {
         this.elements.updateProgressSpeed.textContent = '';
         this.elements.updateProgressETA.textContent = '';
         
-        this.elements.updateStatus.textContent = 'Update downloaded! Click "Restart" to apply the update.';
+        this.elements.updateStatus.textContent = this.downloadState.status;
         this.elements.updateStatus.className = 'update-status success';
-        this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Restart to Update';
+        this.elements.downloadUpdateBtn.innerHTML = this.downloadState.buttonHtml;
         this.elements.downloadUpdateBtn.disabled = false;
         this.elements.downloadUpdateBtn.onclick = () => this.restartForUpdate();
         this.showNotification('Update downloaded! Restart to apply.', 'success');
@@ -1463,53 +1519,92 @@ class MediaBrowser {
         } catch (_) {}
         
         eventSource.close();
+        this.downloadEventSource = null;
+        this.downloadState = null;
         this.elements.updateProgressContainer.classList.add('hidden');
         this.elements.updateStatus.textContent = 'Download failed: ' + errorMsg;
         this.elements.updateStatus.className = 'update-status error';
         this.elements.downloadUpdateBtn.disabled = false;
         this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Retry Download';
+        this.elements.downloadUpdateBtn.onclick = () => this.downloadUpdate();
         this.showNotification('Download failed: ' + errorMsg, 'error');
       });
 
       eventSource.onerror = () => {
         eventSource.close();
+        this.downloadEventSource = null;
         // Only show error if we haven't already completed
-        if (!this.elements.updateStatus.textContent.includes('Downloaded to')) {
+        if (!this.downloadState || this.downloadState.percent !== '100') {
+          this.downloadState = null;
           this.elements.updateProgressContainer.classList.add('hidden');
           this.elements.updateStatus.textContent = 'Connection lost during download';
           this.elements.updateStatus.className = 'update-status error';
           this.elements.downloadUpdateBtn.disabled = false;
           this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Retry Download';
+          this.elements.downloadUpdateBtn.onclick = () => this.downloadUpdate();
         }
       };
 
     } catch (err) {
+      this.downloadState = null;
+      this.downloadEventSource = null;
       this.elements.updateProgressContainer.classList.add('hidden');
       this.elements.updateStatus.textContent = 'Download failed: ' + err.message;
       this.elements.updateStatus.className = 'update-status error';
       this.elements.downloadUpdateBtn.disabled = false;
       this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-download"></i> Retry Download';
+      this.elements.downloadUpdateBtn.onclick = () => this.downloadUpdate();
       this.showNotification('Download failed: ' + err.message, 'error');
     }
   }
 
   async restartForUpdate() {
+    if (this.downloadState) {
+      this.downloadState.buttonDisabled = true;
+      this.downloadState.buttonHtml = '<i class="fa-solid fa-spinner fa-spin"></i> Restarting...';
+      this.downloadState.status = 'Restarting application to apply update...';
+      this.downloadState.statusClass = '';
+    }
+    
     this.elements.downloadUpdateBtn.disabled = true;
     this.elements.downloadUpdateBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Restarting...';
     this.elements.updateStatus.textContent = 'Restarting application to apply update...';
+    this.elements.updateStatus.className = 'update-status';
     
     try {
       const response = await fetch('/api/update/restart', { method: 'POST' });
       const data = await response.json();
       
       if (data.success) {
+        if (this.downloadState) {
+          this.downloadState.status = 'Application is restarting. This window will close shortly...';
+        }
         this.elements.updateStatus.textContent = 'Application is restarting. This window will close shortly...';
         this.showNotification('Restarting to apply update...', 'info');
-        // The server will exit, so the page will eventually lose connection
+        
+        // Try to close this window/tab after a short delay
+        setTimeout(() => {
+          window.close();
+          // If window.close() didn't work (browser security), show a message
+          document.body.innerHTML = `
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#1a1a1a;color:#fff;font-family:system-ui,sans-serif;">
+              <h2>Application is restarting...</h2>
+              <p style="color:#888;">You can close this tab manually.</p>
+              <p style="color:#888;margin-top:20px;">The new version will open in a new window.</p>
+            </div>
+          `;
+        }, 1000);
       } else {
         throw new Error(data.error || 'Failed to restart');
       }
     } catch (err) {
+      if (this.downloadState) {
+        this.downloadState.status = 'Restart failed: ' + err.message;
+        this.downloadState.statusClass = 'error';
+        this.downloadState.buttonDisabled = false;
+        this.downloadState.buttonHtml = '<i class="fa-solid fa-rotate-right"></i> Retry Restart';
+        this.downloadState.buttonOnClick = 'restart';
+      }
       this.elements.updateStatus.textContent = 'Restart failed: ' + err.message;
       this.elements.updateStatus.className = 'update-status error';
       this.elements.downloadUpdateBtn.disabled = false;

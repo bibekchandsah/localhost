@@ -2222,6 +2222,10 @@ body.dark-mode .csv-header-icon { color: #4ade80; }
   position: relative;
 }
 
+#updateBtn.hidden {
+  display: none;
+}
+
 #updateBtn .update-badge {
   position: absolute;
   top: 2px;
