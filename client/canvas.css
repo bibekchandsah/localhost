@@ -357,6 +357,10 @@ body {
   overflow: hidden;
   background: #282828;
 }
+.cv-canvas-area.drag-over {
+  outline: 2px dashed rgba(0, 120, 212, 0.9);
+  outline-offset: -10px;
+}
 .cv-canvas-area.bg-hidden {
   /* checkerboard shows through transparent canvas */
   background:

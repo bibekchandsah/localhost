@@ -94,6 +94,7 @@ class CanvasApp {
     this.preview = document.getElementById('previewCanvas');
     this.pctx    = this.preview.getContext('2d');
     this.wrap    = document.getElementById('cvArea');
+    this._dropDepth = 0;
 
     // Pages
     this.pages          = null; // initialized in init() after saveSnap()
@@ -502,6 +503,15 @@ class CanvasApp {
     p.addEventListener('touchstart',  e => { e.preventDefault(); this.onDown(this.t2m(e)); }, { passive: false });
     p.addEventListener('touchmove',   e => { e.preventDefault(); this.onMove(this.t2m(e)); }, { passive: false });
     p.addEventListener('touchend',    e => { e.preventDefault(); this.onUp(this.t2m(e));   }, { passive: false });
+
+    // Drag and drop image files onto the canvas area.
+    const dragTarget = this.wrap;
+    if (dragTarget) {
+      dragTarget.addEventListener('dragenter', e => this._handleCanvasDragEnter(e));
+      dragTarget.addEventListener('dragover', e => this._handleCanvasDragOver(e));
+      dragTarget.addEventListener('dragleave', e => this._handleCanvasDragLeave(e));
+      dragTarget.addEventListener('drop', e => this._handleCanvasDrop(e));
+    }
   }
 
   t2m(e) {
@@ -3472,10 +3482,16 @@ class CanvasApp {
   }
 
   _pasteImageSrc(src) {
+    this._pasteImageSrcAt(src, null, null);
+  }
+
+  _pasteImageSrcAt(src, dropX = null, dropY = null) {
     const img = new Image();
     img.onload = () => {
-      const cw = this.main.width  || 800;
-      const ch = this.main.height || 600;
+      const frame = this._getPageFrame();
+      const bounds = frame || { x: 0, y: 0, w: this.main.width || 800, h: this.main.height || 600 };
+      const cw = bounds.w;
+      const ch = bounds.h;
       let w = img.naturalWidth;
       let h = img.naturalHeight;
       const maxW = cw * 0.8, maxH = ch * 0.8;
@@ -3484,8 +3500,12 @@ class CanvasApp {
         w = Math.round(w * scale);
         h = Math.round(h * scale);
       }
-      const x = Math.round((cw - w) / 2);
-      const y = Math.round((ch - h) / 2);
+      const x = dropX != null
+        ? Math.round(Math.min(Math.max(dropX - w / 2, bounds.x), bounds.x + bounds.w - w))
+        : Math.round(bounds.x + (bounds.w - w) / 2);
+      const y = dropY != null
+        ? Math.round(Math.min(Math.max(dropY - h / 2, bounds.y), bounds.y + bounds.h - h))
+        : Math.round(bounds.y + (bounds.h - h) / 2);
       const obj = { id: this._nextId++, type: 'image', x, y, w, h, src, rotation: 0, opacity: 1 };
       this._imgCache.set(obj.id, img);
       this.objects.push(obj);
@@ -3495,6 +3515,67 @@ class CanvasApp {
       this.saveSnap();
     };
     img.src = src;
+  }
+
+  _isImageFile(file) {
+    if (!file) return false;
+    if (file.type && file.type.startsWith('image/')) return true;
+    return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name || '');
+  }
+
+  _handleCanvasDragEnter(e) {
+    if (!this._dragHasImageFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this._dropDepth++;
+    this.wrap.classList.add('drag-over');
+  }
+
+  _handleCanvasDragOver(e) {
+    if (!this._dragHasImageFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    this.wrap.classList.add('drag-over');
+  }
+
+  _handleCanvasDragLeave(e) {
+    if (!this._dragHasImageFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this._dropDepth = Math.max(0, this._dropDepth - 1);
+    if (this._dropDepth === 0) this.wrap.classList.remove('drag-over');
+  }
+
+  _handleCanvasDrop(e) {
+    if (!this._dragHasImageFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this._dropDepth = 0;
+    this.wrap.classList.remove('drag-over');
+
+    const files = Array.from(e.dataTransfer?.files ?? []).filter(f => this._isImageFile(f));
+    if (files.length === 0) return;
+
+    const rect = this.preview.getBoundingClientRect();
+    const dropX = e.clientX - rect.left;
+    const dropY = e.clientY - rect.top;
+
+    files.forEach((file, index) => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const offset = index * 24;
+        this._pasteImageSrcAt(ev.target.result, dropX + offset, dropY + offset);
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  _dragHasImageFiles(e) {
+    const types = Array.from(e.dataTransfer?.types ?? []);
+    if (types.includes('Files')) return true;
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    return files.some(file => this._isImageFile(file));
   }
 
   _drawImageObj(ctx, obj) {
