@@ -125,6 +125,24 @@ body {
 .cv-flyout-menu.cv-layer-menu.open {
   display: flex;
 }
+.cv-flyout-menu.cv-align-menu {
+  display: none;
+  min-width: 246px;
+  padding: 6px;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.cv-flyout-menu.cv-align-menu.open {
+  display: grid;
+}
+.cv-align-menu .cv-layer-item {
+  width: 100% !important;
+  height: 30px !important;
+  justify-content: flex-start !important;
+  gap: 8px;
+  padding: 0 10px !important;
+  border-radius: var(--r) !important;
+}
 .cv-layer-item {
   width: 100% !important;
   height: 30px !important;

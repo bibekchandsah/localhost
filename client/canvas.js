@@ -324,9 +324,16 @@ class CanvasApp {
     });
 
     // Copy / Paste / Duplicate
+    this._bindFlyout('copyFlyout');
     document.getElementById('copyBtn').addEventListener('click',      () => this._copySelected());
     document.getElementById('pasteBtn').addEventListener('click',     () => this._pasteClipboard());
     document.getElementById('duplicateBtn').addEventListener('click', () => this._duplicateSelected());
+
+    // Position / Align
+    this._bindFlyout('positionFlyout');
+    document.querySelectorAll('#positionFlyout [data-position]').forEach(btn => {
+      btn.addEventListener('click', () => this._positionSelected(btn.dataset.position));
+    });
 
     // Lock / Unlock
     document.getElementById('lockBtn').addEventListener('click', () => this._toggleLock());
@@ -3023,6 +3030,76 @@ class CanvasApp {
     obj.y2 = base.y2 + dy;
   }
 
+  _positionSelected(mode) {
+    const movableIds = [...this.selectedIds].filter(id => {
+      const obj = this._getObjectById(id);
+      return obj && !obj.locked;
+    });
+    if (movableIds.length === 0) return;
+
+    const target = this._getPositionTargetBounds();
+    if (!target) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const bases = new Map();
+    for (const id of movableIds) {
+      const obj = this._getObjectById(id);
+      if (!obj) continue;
+      const b = this._getAxisAlignedBounds(obj);
+      if (!b) continue;
+      bases.set(id, this._cloneObject(obj));
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.w);
+      maxY = Math.max(maxY, b.y + b.h);
+    }
+    if (!isFinite(minX)) return;
+
+    let dx = 0;
+    let dy = 0;
+    const groupW = maxX - minX;
+    const groupH = maxY - minY;
+
+    switch (mode) {
+      case 'top':
+        dy = target.y - minY;
+        break;
+      case 'middle':
+        dy = (target.y + target.h / 2) - (minY + groupH / 2);
+        break;
+      case 'bottom':
+        dy = (target.y + target.h) - maxY;
+        break;
+      case 'left':
+        dx = target.x - minX;
+        break;
+      case 'center':
+        dx = (target.x + target.w / 2) - (minX + groupW / 2);
+        break;
+      case 'right':
+        dx = (target.x + target.w) - maxX;
+        break;
+      default:
+        return;
+    }
+
+    if (dx === 0 && dy === 0) return;
+
+    for (const [id, base] of bases) {
+      const obj = this._getObjectById(id);
+      if (obj) this._moveFromBase(obj, base, dx, dy);
+    }
+    this.renderAll();
+    this._drawSelectionOverlay();
+    this.saveSnap();
+  }
+
+  _getPositionTargetBounds() {
+    const frame = this._getPageFrame();
+    if (frame) return frame;
+    return { x: 0, y: 0, w: this.main.width || 0, h: this.main.height || 0 };
+  }
+
   _cloneObject(obj) {
     return JSON.parse(JSON.stringify(obj));
   }
@@ -3246,6 +3323,12 @@ class CanvasApp {
     const dupBtn  = document.getElementById('duplicateBtn');
     if (copyBtn) copyBtn.disabled = !has || allLocked;
     if (dupBtn)  dupBtn.disabled  = !has || allLocked;
+    // Position / Align
+    const positionTrigger = document.getElementById('positionTrigger');
+    if (positionTrigger) positionTrigger.disabled = !has || allLocked;
+    document.querySelectorAll('#positionFlyout [data-position]').forEach(btn => {
+      btn.disabled = !has || allLocked;
+    });
     // Lock button — always enabled when something selected
     const lockBtn = document.getElementById('lockBtn');
     if (!lockBtn) return;

@@ -91,10 +91,34 @@
       <div class="cv-div"></div>
 
       <!-- Copy / Paste / Duplicate -->
-      <div class="cv-group">
-        <button class="cv-tool" id="copyBtn"      title="Copy  Ctrl+C"><i class="fa-regular fa-copy"></i></button>
-        <button class="cv-tool" id="pasteBtn"     title="Paste  Ctrl+V"><i class="fa-solid fa-paste"></i></button>
-        <button class="cv-tool" id="duplicateBtn" title="Duplicate  Ctrl+D"><i class="fa-solid fa-clone"></i></button>
+      <div class="cv-flyout" id="copyFlyout">
+        <button class="cv-tool cv-size-trigger" id="copyTrigger" title="Clipboard actions">
+          <i class="fa-regular fa-copy"></i>
+          <span>Clipboard</span>
+        </button>
+        <div class="cv-flyout-menu cv-layer-menu">
+          <button class="cv-tool cv-layer-item" id="copyBtn" title="Copy  Ctrl+C"><i class="fa-regular fa-copy"></i><span class="cv-layer-name">Copy</span><kbd>Ctrl+C</kbd></button>
+          <button class="cv-tool cv-layer-item" id="pasteBtn" title="Paste  Ctrl+V"><i class="fa-solid fa-paste"></i><span class="cv-layer-name">Paste</span><kbd>Ctrl+V</kbd></button>
+          <button class="cv-tool cv-layer-item" id="duplicateBtn" title="Duplicate  Ctrl+D"><i class="fa-solid fa-clone"></i><span class="cv-layer-name">Duplicate</span><kbd>Ctrl+D</kbd></button>
+        </div>
+      </div>
+
+      <div class="cv-div"></div>
+
+      <!-- Position / Align flyout -->
+      <div class="cv-flyout" id="positionFlyout">
+        <button class="cv-tool cv-size-trigger" id="positionTrigger" title="Position selected elements">
+          <i class="fa-solid fa-align-center"></i>
+          <span>Position</span>
+        </button>
+        <div class="cv-flyout-menu cv-align-menu">
+          <button class="cv-tool cv-layer-item" data-position="top"><i class="fa-solid fa-arrow-up"></i><span class="cv-layer-name">Top</span></button>
+          <button class="cv-tool cv-layer-item" data-position="left"><i class="fa-solid fa-arrow-left"></i><span class="cv-layer-name">Left</span></button>
+          <button class="cv-tool cv-layer-item" data-position="middle"><i class="fa-solid fa-arrows-up-down"></i><span class="cv-layer-name">Middle</span></button>
+          <button class="cv-tool cv-layer-item" data-position="center"><i class="fa-solid fa-bullseye"></i><span class="cv-layer-name">Center</span></button>
+          <button class="cv-tool cv-layer-item" data-position="bottom"><i class="fa-solid fa-arrow-down"></i><span class="cv-layer-name">Bottom</span></button>
+          <button class="cv-tool cv-layer-item" data-position="right"><i class="fa-solid fa-arrow-right"></i><span class="cv-layer-name">Right</span></button>
+        </div>
       </div>
 
       <div class="cv-div"></div>
