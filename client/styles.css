@@ -2026,7 +2026,7 @@ body.dark-mode .csv-header-icon { color: #4ade80; }
 }
 
 .cloud-share-body {
-  margin: 1rem;
+  margin: 1rem 0;
 }
 
 .cloud-share-status {

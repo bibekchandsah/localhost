@@ -1988,18 +1988,20 @@ class CanvasApp {
 
     if (frame) {
       // Workspace background (dark surround)
-      ctx.fillStyle = '#1a1a1a';
+      ctx.fillStyle = '#1a1a1a00';
       ctx.fillRect(0, 0, W, H);
 
-      // Page shadow
-      ctx.save();
-      ctx.shadowColor    = 'rgba(0,0,0,0.65)';
-      ctx.shadowBlur     = 24;
-      ctx.shadowOffsetX  = 2;
-      ctx.shadowOffsetY  = 4;
-      ctx.fillStyle      = this.bgVisible ? this.bgColor : '#ffffff';
-      ctx.fillRect(frame.x, frame.y, frame.w, frame.h);
-      ctx.restore();
+      // Page fill only when background is visible; otherwise keep it transparent.
+      if (this.bgVisible) {
+        ctx.save();
+        ctx.shadowColor    = '#000000a6';
+        ctx.shadowBlur     = 24;
+        ctx.shadowOffsetX  = 2;
+        ctx.shadowOffsetY  = 4;
+        ctx.fillStyle      = this.bgColor;
+        ctx.fillRect(frame.x, frame.y, frame.w, frame.h);
+        ctx.restore();
+      }
 
       // Objects (clipped to page)
       ctx.save();
