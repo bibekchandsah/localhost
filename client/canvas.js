@@ -1603,16 +1603,40 @@ class CanvasApp {
   }
 
   download() {
-    // Composite onto background (or transparent if bg hidden)
+    // Export exact page size in preset/custom mode; otherwise export full viewport.
     const tmp    = document.createElement('canvas');
-    tmp.width    = this.main.width;
-    tmp.height   = this.main.height;
     const tc     = tmp.getContext('2d');
-    if (this.bgVisible) {
-      tc.fillStyle = this.bgColor;
-      tc.fillRect(0, 0, tmp.width, tmp.height);
+
+    const frame = this._getPageFrame();
+    if (frame && this.designW && this.designH) {
+      tmp.width  = Math.max(1, Math.round(this.designW));
+      tmp.height = Math.max(1, Math.round(this.designH));
+
+      if (this.bgVisible) {
+        tc.fillStyle = this.bgColor;
+        tc.fillRect(0, 0, tmp.width, tmp.height);
+      }
+
+      // Map current on-screen page frame coordinates into exported logical page pixels.
+      const sx = tmp.width / frame.w;
+      const sy = tmp.height / frame.h;
+      tc.save();
+      tc.beginPath();
+      tc.rect(0, 0, tmp.width, tmp.height);
+      tc.clip();
+      tc.scale(sx, sy);
+      tc.translate(-frame.x, -frame.y);
+      this.objects.forEach(obj => this._drawObject(tc, obj));
+      tc.restore();
+    } else {
+      tmp.width  = this.main.width;
+      tmp.height = this.main.height;
+      if (this.bgVisible) {
+        tc.fillStyle = this.bgColor;
+        tc.fillRect(0, 0, tmp.width, tmp.height);
+      }
+      tc.drawImage(this.main, 0, 0);
     }
-    tc.drawImage(this.main, 0, 0);
 
     const a      = document.createElement('a');
     const ts     = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
